@@ -75,6 +75,24 @@ function createMainWindow() {
     mainWindow.webContents.openDevTools();
   }
 
+  // Keyboard shortcut to toggle DevTools (Cmd+Option+I on Mac, Ctrl+Shift+I on Windows/Linux)
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown') {
+      // Mac: Cmd+Option+I
+      if (process.platform === 'darwin' && input.meta && input.alt && input.key === 'i') {
+        mainWindow.webContents.toggleDevTools();
+      }
+      // Windows/Linux: Ctrl+Shift+I
+      if (process.platform !== 'darwin' && input.control && input.shift && input.key === 'I') {
+        mainWindow.webContents.toggleDevTools();
+      }
+      // F12 on all platforms
+      if (input.key === 'F12') {
+        mainWindow.webContents.toggleDevTools();
+      }
+    }
+  });
+
   // Log console messages from renderer
   mainWindow.webContents.on('console-message', (event, level, message) => {
     console.log(`[Renderer] ${message}`);
