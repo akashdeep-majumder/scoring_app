@@ -623,24 +623,60 @@ function startServer(port = 3000) {
       });
     } else {
       // In production, serve the built files
-      const distPath = path.join(__dirname, '../dist');
+      // Try multiple possible locations for dist folder in packaged app
+      const possibleDistPaths = [
+        path.join(__dirname, '../dist'),
+        path.join(process.resourcesPath, 'app/dist'),
+        path.join(process.resourcesPath, 'dist'),
+        path.join(__dirname, '../../dist')
+      ];
+
+      let distPath = null;
+      for (const testPath of possibleDistPaths) {
+        if (fs.existsSync(testPath)) {
+          distPath = testPath;
+          console.log(`Found dist folder at: ${distPath}`);
+          break;
+        }
+      }
+
+      if (!distPath) {
+        console.error('Could not find dist folder in any expected location!');
+        console.error('Tried locations:', possibleDistPaths);
+        distPath = path.join(__dirname, '../dist'); // Fallback
+      }
 
       // Serve static files
       app.use(express.static(distPath));
 
       // Serve network-scoreboard and scoreboard routes
       app.get('/network-scoreboard', (req, res) => {
-        res.sendFile(path.join(distPath, 'index.html'));
+        const indexPath = path.join(distPath, 'index.html');
+        if (fs.existsSync(indexPath)) {
+          res.sendFile(indexPath);
+        } else {
+          res.status(404).send('index.html not found at: ' + indexPath);
+        }
       });
 
       app.get('/scoreboard', (req, res) => {
-        res.sendFile(path.join(distPath, 'index.html'));
+        const indexPath = path.join(distPath, 'index.html');
+        if (fs.existsSync(indexPath)) {
+          res.sendFile(indexPath);
+        } else {
+          res.status(404).send('index.html not found at: ' + indexPath);
+        }
       });
 
       // Fallback to index.html for client-side routing
       app.get('*', (req, res) => {
         if (!req.path.startsWith('/api')) {
-          res.sendFile(path.join(distPath, 'index.html'));
+          const indexPath = path.join(distPath, 'index.html');
+          if (fs.existsSync(indexPath)) {
+            res.sendFile(indexPath);
+          } else {
+            res.status(404).send('index.html not found at: ' + indexPath);
+          }
         }
       });
     }
@@ -653,11 +689,17 @@ function startServer(port = 3000) {
       console.log('='.repeat(60));
       console.log('🏏 Cricket Scoring App Server Started');
       console.log('='.repeat(60));
+      console.log(`Mode:     ${isDevelopment ? 'Development' : 'Production'}`);
       console.log(`Local:    http://localhost:${port}`);
       console.log(`Network:  http://${localIP}:${port}`);
       console.log('='.repeat(60));
-      console.log('Scoreboard URL for display:');
+      console.log('Scoreboard URLs for network display:');
       console.log(`  http://${localIP}:${port}/scoreboard`);
+      console.log(`  http://${localIP}:${port}/network-scoreboard`);
+      console.log('='.repeat(60));
+      console.log('API Endpoints:');
+      console.log(`  http://${localIP}:${port}/api/health`);
+      console.log(`  http://${localIP}:${port}/api/match/current`);
       console.log('='.repeat(60));
 
       resolve({
