@@ -1,17 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast';
+import { toast } from 'react-toastify';
 import { useApp } from '../contexts/AppContext';
 import { ArrowLeft, Eye, Film } from 'lucide-react';
 import { formatOvers, calculateStrikeRate, getTotalBalls } from '../utils/helpers';
 import ConfirmDialog from '../components/ConfirmDialog';
-import AdPlayer from '../components/AdPlayer';
 import InningsSummary from '../components/InningsSummary';
 import type { BatsmanStats, BowlerStats, Ball, FallOfWicket, Innings } from '../types';
 
 const Scoring: React.FC = () => {
   const navigate = useNavigate();
-  const { currentMatch, updateMatch, ads } = useApp();
+  const { currentMatch, updateMatch, ads, tournaments } = useApp();
 
   const [striker, setStriker] = useState<BatsmanStats | null>(null);
   const [nonStriker, setNonStriker] = useState<BatsmanStats | null>(null);
@@ -20,7 +19,6 @@ const Scoring: React.FC = () => {
   const [showExtraInput, setShowExtraInput] = useState<'wide' | 'no-ball' | 'bye' | 'leg-bye' | null>(null);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showBowlerChange, setShowBowlerChange] = useState(false);
-  const [showAdPlayer, setShowAdPlayer] = useState(false);
   const [isAdBroadcasting, setIsAdBroadcasting] = useState(false);
   const [showInningsSummary, setShowInningsSummary] = useState(false);
   const [isFreeHit, setIsFreeHit] = useState(false);
@@ -29,6 +27,18 @@ const Scoring: React.FC = () => {
   const [pendingWicketRuns, setPendingWicketRuns] = useState(0);
   const [showFielderSelect, setShowFielderSelect] = useState(false);
   const [selectedWicketType, setSelectedWicketType] = useState<string>('');
+  const [undoCount, setUndoCount] = useState(0);
+  const [pendingWideRuns, setPendingWideRuns] = useState(0);
+  const [showWideRunOutInput, setShowWideRunOutInput] = useState(false);
+  const [pendingNoBallRuns, setPendingNoBallRuns] = useState(0);
+  const [showNoBallRunOutInput, setShowNoBallRunOutInput] = useState(false);
+  const [pendingByeRuns, setPendingByeRuns] = useState(0);
+  const [showByeRunOutInput, setShowByeRunOutInput] = useState(false);
+  const [pendingLegByeRuns, setPendingLegByeRuns] = useState(0);
+  const [showLegByeRunOutInput, setShowLegByeRunOutInput] = useState(false);
+  const [pendingExtraType, setPendingExtraType] = useState<'wide' | 'no-ball' | 'bye' | 'leg-bye' | null>(null);
+  const [showBatsmanRunOutSelect, setShowBatsmanRunOutSelect] = useState(false);
+  const [selectedRunOutBatsman, setSelectedRunOutBatsman] = useState<'striker' | 'non-striker' | null>(null);
 
   // Restore current batsmen and bowler from match data when component mounts or match changes
   useEffect(() => {
@@ -71,14 +81,15 @@ const Scoring: React.FC = () => {
   const battingTeam = currentMatch.team1.id === currentInnings.battingTeamId ? currentMatch.team1 : currentMatch.team2;
   const bowlingTeam = currentMatch.team1.id === currentInnings.bowlingTeamId ? currentMatch.team1 : currentMatch.team2;
 
-  const recordBall = async (runs: number, isWicket: boolean = false, extraType?: 'wide' | 'no-ball' | 'bye' | 'leg-bye', extraRuns: number = 0, wicketType?: string, fielderName?: string) => {
+  // Get tournament to check format (6v6, 8v8, etc.)
+  const tournament = tournaments.find(t => t.id === currentMatch.tournamentId);
+  const playersPerTeam = tournament?.playersPerTeam || 11; // Default to 11 if not found
+  const maxWickets = playersPerTeam - 1; // e.g., 6v6 = 5 wickets, 8v8 = 7 wickets, 11v11 = 10 wickets
+
+  const recordBall = async (runs: number, isWicket: boolean = false, extraType?: 'wide' | 'no-ball' | 'bye' | 'leg-bye', extraRuns: number = 0, wicketType?: string, fielderName?: string, noStrikeChange: boolean = false, outBatsmanId?: string) => {
     // Cricket Rule Validations
 
-    // Free Hit Rule: No wicket except run-out
-    if (isFreeHit && isWicket) {
-      toast.error('FREE HIT! Batsman cannot be out except run-out.');
-      return;
-    }
+    // NO FREE HIT in this tournament format - rule removed
 
     // 1. Check if batsmen and bowler are selected
     if (!striker || !currentBowler) {
@@ -96,8 +107,8 @@ const Scoring: React.FC = () => {
     const totalBalls = getTotalBalls(currentInnings.overs, currentInnings.balls);
     const maxBalls = currentMatch.overs * 6;
 
-    if (currentInnings.wickets >= 10) {
-      toast.error('All out! Innings is complete. Cannot score more balls.');
+    if (currentInnings.wickets >= maxWickets) {
+      toast.error(`All out! ${maxWickets} wickets down. Innings is complete.`);
       return;
     }
 
@@ -144,7 +155,7 @@ const Scoring: React.FC = () => {
     }
 
     // 9. Check bowler's over limit (can't bowl more than 20% of total overs)
-    const maxOversPerBowler = Math.floor(currentMatch.overs / 5); // 20% of total overs
+    const maxOversPerBowler = Math.ceil(currentMatch.overs / 5); // 20% of total overs (always round up)
     const bowlerBalls = currentBowler.balls || 0;
     const bowlerOversCompleted = Math.floor(bowlerBalls / 6);
     const bowlerBallsInCurrentOver = bowlerBalls % 6;
@@ -161,6 +172,20 @@ const Scoring: React.FC = () => {
 
     const updatedInnings = { ...currentInnings };
 
+    // SPECIAL RULE: 6 is OUT
+    // If batsman hits 6, they are out and team gets 0 runs
+    // Exception: On no-ball, batsman is still out but team gets 1 run (no-ball penalty)
+    if (runs === 6 && isWicket) {
+      if (extraType === 'no-ball') {
+        // No-ball + 6: batsman out, team gets only 1 run (no-ball penalty)
+        runs = 0;
+        extraRuns = 0;
+      } else {
+        // Normal 6: batsman out, team gets 0 runs
+        runs = 0;
+      }
+    }
+
     // Calculate total runs to add to innings score
     let totalRunsToAdd = runs;
     if (extraType === 'wide' || extraType === 'no-ball') {
@@ -175,7 +200,11 @@ const Scoring: React.FC = () => {
     // Update extras
     if (extraType) {
       if (extraType === 'wide') {
-        updatedInnings.extras.wides += 1 + extraRuns; // wide penalty + any runs
+        // Wide: 1 penalty to wides, any extra runs to byes
+        updatedInnings.extras.wides += 1;
+        if (extraRuns > 0) {
+          updatedInnings.extras.byes += extraRuns;
+        }
       } else if (extraType === 'no-ball') {
         updatedInnings.extras.noBalls += 1 + extraRuns; // no-ball penalty + any runs
       } else if (extraType === 'bye') {
@@ -185,24 +214,39 @@ const Scoring: React.FC = () => {
       }
     }
 
-    // Update batsman stats (only for normal balls, no-balls, and wides - NOT byes/leg-byes)
-    if (!extraType || (extraType !== 'bye' && extraType !== 'leg-bye')) {
-      const strikerIndex = updatedInnings.batsmen.findIndex(b => b.playerId === striker.playerId);
-      if (strikerIndex >= 0) {
-        // On wide/no-ball, batsman gets runs but not the penalty run
-        const batsmanRuns = (extraType === 'wide' || extraType === 'no-ball') ? runs + extraRuns : runs;
+    // Update batsman stats (only for normal balls and no-balls - NOT byes/leg-byes/wides)
+    const strikerIndex = updatedInnings.batsmen.findIndex(b => b.playerId === striker.playerId);
+    if (strikerIndex >= 0) {
+      if (!extraType || extraType === 'no-ball') {
+        // On no-ball, batsman gets runs but not the penalty run
+        const batsmanRuns = (extraType === 'no-ball') ? runs + extraRuns : runs;
         updatedInnings.batsmen[strikerIndex].runs += batsmanRuns;
 
-        // Only count ball if it's a valid delivery (not wide or no-ball)
-        if (validBall) updatedInnings.batsmen[strikerIndex].balls += 1;
+        // Count ball: valid deliveries (normal balls) AND no-balls
+        // No-ball counts as ball faced, but wide doesn't
+        if (validBall || extraType === 'no-ball') {
+          updatedInnings.batsmen[strikerIndex].balls += 1;
+        }
 
         if (batsmanRuns === 4) updatedInnings.batsmen[strikerIndex].fours += 1;
         // Note: 6 is not counted as it's OUT in local rules
-        if (isWicket) updatedInnings.batsmen[strikerIndex].isOut = true;
         updatedInnings.batsmen[strikerIndex].strikeRate = calculateStrikeRate(
           updatedInnings.batsmen[strikerIndex].runs,
           updatedInnings.batsmen[strikerIndex].balls
         );
+      }
+    }
+
+    // Mark batsman as out if wicket, regardless of extra type
+    // Use outBatsmanId if provided (for run outs where non-striker is out)
+    if (isWicket) {
+      const outBatsmanIndex = outBatsmanId
+        ? updatedInnings.batsmen.findIndex(b => b.playerId === outBatsmanId)
+        : strikerIndex;
+
+      if (outBatsmanIndex >= 0) {
+        updatedInnings.batsmen[outBatsmanIndex].isOut = true;
+        updatedInnings.batsmen[outBatsmanIndex].isOnStrike = false;
       }
     }
 
@@ -224,6 +268,29 @@ const Scoring: React.FC = () => {
         updatedInnings.bowlers[bowlerIndex].economy = parseFloat(economy.toFixed(2));
       }
     }
+
+    // Record ball BEFORE updating ball count (to capture current over/ball number)
+    // In cricket, overs are 1-based (Over 1, Over 2, etc.) and balls are 1-6
+    const currentOverNumber = updatedInnings.overs + 1; // Convert 0-based to 1-based
+    const currentBallNumber = updatedInnings.balls + 1; // Convert 0-based to 1-based
+
+    const ball: Ball = {
+      over: currentOverNumber,
+      ball: currentBallNumber,
+      batsman: striker.playerName,
+      nonStriker: nonStriker?.playerName || '',
+      bowler: currentBowler.playerName,
+      runs: extraType ? 0 : runs, // Runs scored by batsman (not including extras)
+      totalRuns: totalRunsToAdd, // Total runs added to score
+      isWicket,
+      isExtra,
+      extraType,
+      extraRuns: extraType === 'wide' || extraType === 'no-ball' ? (1 + extraRuns) : 0,
+      wicketType: isWicket ? (wicketType as any) : undefined,
+      fielderId: fielderName,
+      isFreeHit: isFreeHit
+    };
+    updatedInnings.ballByBall.push(ball);
 
     // Update ball count (only for valid deliveries)
     const overComplete = validBall && (updatedInnings.balls + 1) % 6 === 0;
@@ -298,54 +365,48 @@ const Scoring: React.FC = () => {
       }
     }
 
-    // Record ball
-    const ball: Ball = {
-      over: updatedInnings.overs,
-      ball: updatedInnings.balls,
-      batsman: striker.playerName,
-      nonStriker: nonStriker?.playerName || '',
-      bowler: currentBowler.playerName,
-      runs: extraType ? 0 : runs, // Runs scored by batsman (not including extras)
-      totalRuns: totalRunsToAdd, // Total runs added to score
-      isWicket,
-      isExtra,
-      extraType,
-      extraRuns: extraType === 'wide' || extraType === 'no-ball' ? (1 + extraRuns) : 0,
-      wicketType: isWicket ? (wicketType as any) : undefined,
-      fielderId: fielderName,
-      isFreeHit: isFreeHit
-    };
-    updatedInnings.ballByBall.push(ball);
-
-    // Set free hit for next ball if this was a no-ball (and it was a valid delivery)
-    if (extraType === 'no-ball' && validBall) {
-      setIsFreeHit(true);
-      toast.success('Next ball is a FREE HIT!', { duration: 3000, icon: '🎯' });
-    } else if (isFreeHit && validBall) {
-      // Clear free hit after it's used
+    // NO FREE HIT in this tournament format
+    // Clear free hit if it was set from previous rules
+    if (isFreeHit && validBall) {
       setIsFreeHit(false);
     }
 
     // Determine if strike should rotate
     let shouldRotateStrike = false;
 
-    if (!isWicket) {
-      if (extraType === 'bye' || extraType === 'leg-bye') {
-        // For bye/legbye, rotate on odd runs
-        shouldRotateStrike = runs % 2 === 1;
-      } else if (extraType === 'wide') {
-        // For wide, rotate if batsmen ran (extraRuns is odd)
-        shouldRotateStrike = extraRuns % 2 === 1;
-      } else if (extraType === 'no-ball') {
-        // For no-ball, rotate if total batsman runs are odd
-        shouldRotateStrike = (runs + extraRuns) % 2 === 1;
-      } else {
-        // Normal ball, rotate on odd runs
-        shouldRotateStrike = runs % 2 === 1 && validBall;
+    // If noStrikeChange is true, don't rotate strike at all
+    if (!noStrikeChange) {
+      // For run outs, strike rotates based on runs completed before dismissal
+      if (isWicket && wicketType === 'run out') {
+        if (extraType === 'bye' || extraType === 'leg-bye') {
+          // For bye/legbye run out, rotate on odd runs
+          shouldRotateStrike = runs % 2 === 1;
+        } else if (extraType === 'wide') {
+          // For wide run out, rotate if batsmen ran (extraRuns is odd)
+          shouldRotateStrike = extraRuns % 2 === 1;
+        } else if (extraType === 'no-ball') {
+          // For no-ball run out, rotate if batsman runs are odd
+          shouldRotateStrike = (runs + extraRuns) % 2 === 1;
+        }
+      } else if (!isWicket) {
+        // Normal strike rotation for non-wicket balls
+        if (extraType === 'bye' || extraType === 'leg-bye') {
+          // For bye/legbye, rotate on odd runs
+          shouldRotateStrike = runs % 2 === 1;
+        } else if (extraType === 'wide') {
+          // For wide, rotate if batsmen ran (extraRuns is odd)
+          shouldRotateStrike = extraRuns % 2 === 1;
+        } else if (extraType === 'no-ball') {
+          // For no-ball, rotate if total batsman runs are odd
+          shouldRotateStrike = (runs + extraRuns) % 2 === 1;
+        } else {
+          // Normal ball, rotate on odd runs
+          shouldRotateStrike = runs % 2 === 1 && validBall;
+        }
       }
     }
 
-    // Rotate strike if needed
+    // Rotate strike if needed (based on runs scored)
     if (shouldRotateStrike) {
       const temp = striker;
       setStriker(nonStriker);
@@ -358,6 +419,24 @@ const Scoring: React.FC = () => {
       }));
     }
 
+    // Change strike at end of over (after 6 valid balls)
+    // This happens AFTER any strike change from runs scored
+    if (overComplete && !isWicket) {
+      // If strike was already changed due to odd runs, this will change it back
+      // If strike wasn't changed (even runs or dot ball), this will change it
+      const temp = striker;
+      setStriker(nonStriker);
+      setNonStriker(temp);
+
+      // Update strike markers
+      updatedInnings.batsmen = updatedInnings.batsmen.map(b => ({
+        ...b,
+        isOnStrike: b.playerId === (shouldRotateStrike ? striker?.playerId : nonStriker?.playerId)
+      }));
+
+      toast.info(`⚡ Over complete! Strike changed to ${shouldRotateStrike ? striker?.playerName : nonStriker?.playerName}`, { autoClose: 2000 });
+    }
+
     // Update match
     const updatedMatch = { ...currentMatch };
     updatedMatch.innings[currentMatch.currentInnings - 1] = updatedInnings;
@@ -365,9 +444,9 @@ const Scoring: React.FC = () => {
     // Check for innings end
     const totalBallsInInnings = getTotalBalls(updatedInnings.overs, updatedInnings.balls);
 
-    if (updatedInnings.wickets >= 10 || totalBallsInInnings >= maxBalls) {
+    if (updatedInnings.wickets >= maxWickets || totalBallsInInnings >= maxBalls) {
       // Mark innings as all out if applicable
-      if (updatedInnings.wickets >= 10) {
+      if (updatedInnings.wickets >= maxWickets) {
         updatedInnings.isAllOut = true;
       }
 
@@ -407,14 +486,30 @@ const Scoring: React.FC = () => {
     }
 
     if (isWicket) {
-      setStriker(null);
+      // Determine which batsman got out
+      // Use outBatsmanId if provided, otherwise use striker
+      const outBatsmanIndex = outBatsmanId
+        ? updatedInnings.batsmen.findIndex(b => b.playerId === outBatsmanId)
+        : updatedInnings.batsmen.findIndex(b => b.playerId === striker.playerId);
+
+      const outBatsmanName = outBatsmanIndex >= 0
+        ? updatedInnings.batsmen[outBatsmanIndex].playerName
+        : striker.playerName;
+
+      // Clear the batsman who got out from state
+      if (outBatsmanId === striker?.playerId || !outBatsmanId) {
+        setStriker(null);
+      } else if (outBatsmanId === nonStriker?.playerId) {
+        setNonStriker(null);
+      }
+
       if (updatedInnings.wickets < 10) {
-        toast.success(`Wicket! ${striker.playerName} is out. Please select the next batsman.`, {
-          duration: 4000,
+        toast.success(`Wicket! ${outBatsmanName} is out. Please select the next batsman.`, {
+          autoClose: 4000,
         });
       } else {
         toast.success(`All Out! ${battingTeam.name} all out for ${updatedInnings.runs} runs.`, {
-          duration: 5000,
+          autoClose: 5000,
         });
       }
     }
@@ -423,9 +518,12 @@ const Scoring: React.FC = () => {
     if (overComplete && !isWicket && updatedInnings.wickets < 10 && totalBallsInInnings < maxBalls) {
       setShowBowlerChange(true);
       toast.success('Over complete! Please select a new bowler.', {
-        duration: 3000,
+        autoClose: 3000,
       });
     }
+
+    // Reset undo count when a new ball is recorded
+    setUndoCount(0);
 
     try {
       await updateMatch(updatedMatch);
@@ -461,6 +559,12 @@ const Scoring: React.FC = () => {
           toast.success(`${playerName} returns from retired hurt`);
         }
       } else if (!existingBatsman) {
+        // Ensure all other batsmen are marked as not on strike
+        updatedInnings.batsmen = updatedInnings.batsmen.map(b => ({
+          ...b,
+          isOnStrike: false
+        }));
+
         const newBatsman: BatsmanStats = {
           playerId,
           playerName,
@@ -473,8 +577,27 @@ const Scoring: React.FC = () => {
           isOnStrike: type === 'striker',
         };
         updatedInnings.batsmen.push(newBatsman);
-        if (type === 'striker') setStriker(newBatsman);
-        else setNonStriker(newBatsman);
+
+        // Update strike status - ensure only selected batsman is on strike
+        if (type === 'striker') {
+          setStriker(newBatsman);
+          // Non-striker should also have isOnStrike = false
+          if (nonStriker) {
+            const nonStrikerIndex = updatedInnings.batsmen.findIndex(b => b.playerId === nonStriker.playerId);
+            if (nonStrikerIndex >= 0) {
+              updatedInnings.batsmen[nonStrikerIndex].isOnStrike = false;
+            }
+          }
+        } else {
+          setNonStriker(newBatsman);
+          // Striker should retain isOnStrike = true
+          if (striker) {
+            const strikerIndex = updatedInnings.batsmen.findIndex(b => b.playerId === striker.playerId);
+            if (strikerIndex >= 0) {
+              updatedInnings.batsmen[strikerIndex].isOnStrike = true;
+            }
+          }
+        }
 
         const updatedMatch = { ...currentMatch };
         updatedMatch.innings[currentMatch.currentInnings - 1] = updatedInnings;
@@ -496,7 +619,7 @@ const Scoring: React.FC = () => {
       // Check if bowler has reached max overs
       const existingBowler = updatedInnings.bowlers.find(b => b.playerId === playerId);
       if (existingBowler) {
-        const maxOversPerBowler = Math.floor(currentMatch.overs / 5);
+        const maxOversPerBowler = Math.ceil(currentMatch.overs / 5); // Always round up
         const bowlerOversCompleted = Math.floor(existingBowler.balls / 6);
         if (bowlerOversCompleted >= maxOversPerBowler) {
           toast.error(`${playerName} has already bowled the maximum ${maxOversPerBowler} overs!`);
@@ -566,12 +689,100 @@ const Scoring: React.FC = () => {
   const handleExtraWithRuns = (extraType: 'wide' | 'no-ball' | 'bye' | 'leg-bye', runs: number) => {
     if (extraType === 'wide' || extraType === 'no-ball') {
       // For wide/no-ball, 'runs' is the extra runs beyond the penalty
-      recordBall(0, false, extraType, runs);
+      // Special case: No-ball + 6 = batsman OUT
+      if (extraType === 'no-ball' && runs === 6) {
+        recordBall(6, true, extraType, 0);
+      } else {
+        recordBall(0, false, extraType, runs);
+      }
     } else {
       // For bye/leg-bye, 'runs' is the total runs
       recordBall(runs, false, extraType, 0);
     }
     setShowExtraInput(null);
+  };
+
+  const handleWideRunOut = (runs: number = 0) => {
+    // Store the wide runs and open batsman selection for run out
+    setPendingWideRuns(runs);
+    setPendingExtraType('wide');
+    setSelectedWicketType('run out');
+    setShowWideRunOutInput(false);
+    setShowBatsmanRunOutSelect(true);
+  };
+
+  const handleNoBallRunOut = (runs: number = 0) => {
+    // Store the no-ball runs and open batsman selection for run out
+    setPendingNoBallRuns(runs);
+    setPendingExtraType('no-ball');
+    setSelectedWicketType('run out');
+    setShowNoBallRunOutInput(false);
+    setShowBatsmanRunOutSelect(true);
+  };
+
+  const handleByeRunOut = (runs: number = 0) => {
+    // Store the bye runs and open batsman selection for run out
+    setPendingByeRuns(runs);
+    setPendingExtraType('bye');
+    setSelectedWicketType('run out');
+    setShowByeRunOutInput(false);
+    setShowBatsmanRunOutSelect(true);
+  };
+
+  const handleLegByeRunOut = (runs: number = 0) => {
+    // Store the leg-bye runs and open batsman selection for run out
+    setPendingLegByeRuns(runs);
+    setPendingExtraType('leg-bye');
+    setSelectedWicketType('run out');
+    setShowLegByeRunOutInput(false);
+    setShowBatsmanRunOutSelect(true);
+  };
+
+  const handleBatsmanRunOutSelection = (batsmanType: 'striker' | 'non-striker') => {
+    // Store which batsman is out and proceed to fielder selection
+    setSelectedRunOutBatsman(batsmanType);
+    setShowBatsmanRunOutSelect(false);
+    setShowFielderSelect(true);
+  };
+
+  const handleRunOutWithFielder = async (fielderName: string) => {
+    // Determine which batsman got out
+    const outBatsman = selectedRunOutBatsman === 'striker' ? striker : nonStriker;
+
+    if (!outBatsman) {
+      toast.error('Batsman not found');
+      return;
+    }
+
+    // Record the ball based on extra type, passing the out batsman's ID
+    if (pendingExtraType === 'wide') {
+      await recordBall(0, true, 'wide', pendingWideRuns, 'run out', fielderName, false, outBatsman.playerId);
+      setPendingWideRuns(0);
+    } else if (pendingExtraType === 'no-ball') {
+      await recordBall(0, true, 'no-ball', pendingNoBallRuns, 'run out', fielderName, false, outBatsman.playerId);
+      setPendingNoBallRuns(0);
+    } else if (pendingExtraType === 'bye') {
+      await recordBall(pendingByeRuns, true, 'bye', 0, 'run out', fielderName, false, outBatsman.playerId);
+      setPendingByeRuns(0);
+    } else if (pendingExtraType === 'leg-bye') {
+      await recordBall(pendingLegByeRuns, true, 'leg-bye', 0, 'run out', fielderName, false, outBatsman.playerId);
+      setPendingLegByeRuns(0);
+    }
+
+    // Reset states
+    setShowFielderSelect(false);
+    setPendingExtraType(null);
+    setSelectedRunOutBatsman(null);
+  };
+
+  const handleFixedOne = async () => {
+    // 1 run, no strike change
+    await recordBall(1, false, undefined, 0, undefined, undefined, true);
+  };
+
+  const handleByeOneNoStrike = async () => {
+    // Bye 1 run, no strike change
+    await recordBall(1, false, 'bye', 0, undefined, undefined, true);
   };
 
   const handleOverthrow = async (overthrowRuns: number) => {
@@ -626,52 +837,6 @@ const Scoring: React.FC = () => {
     }
   };
 
-  const handleShortRun = async () => {
-    if (currentInnings.ballByBall.length === 0) {
-      toast.error('No balls bowled yet');
-      return;
-    }
-
-    const updatedInnings = { ...currentInnings };
-    const lastBall = updatedInnings.ballByBall[updatedInnings.ballByBall.length - 1];
-
-    if (lastBall.shortRun) {
-      toast.error('Short run already marked on this ball');
-      return;
-    }
-
-    if ((lastBall.runs || 0) < 1) {
-      toast.error('Cannot mark short run on a ball with 0 runs');
-      return;
-    }
-
-    // Deduct 1 run from innings total
-    updatedInnings.runs -= 1;
-
-    // Mark the ball as short run
-    lastBall.shortRun = true;
-    if (lastBall.totalRuns) lastBall.totalRuns -= 1;
-
-    // Update partnership
-    if (updatedInnings.partnerships) {
-      const activePartnership = updatedInnings.partnerships.find(p => p.isActive);
-      if (activePartnership && activePartnership.runs > 0) {
-        activePartnership.runs -= 1;
-      }
-    }
-
-    const updatedMatch = { ...currentMatch };
-    updatedMatch.innings[currentMatch.currentInnings - 1] = updatedInnings;
-
-    try {
-      await updateMatch(updatedMatch);
-      toast.success('Short run marked - 1 run deducted');
-    } catch (error) {
-      console.error('Failed to mark short run:', error);
-      toast.error('Failed to mark short run');
-    }
-  };
-
   const handleWicketTypeSelection = async (wicketType: string) => {
     // Check if wicket type needs fielder selection
     const needsFielder = ['caught', 'run out', 'stumped', 'caught & bowled'].includes(wicketType);
@@ -697,6 +862,12 @@ const Scoring: React.FC = () => {
       return;
     }
 
+    // Limit undo to last 3 consecutive balls only
+    if (undoCount >= 3) {
+      toast.error('Can only undo last 3 balls');
+      return;
+    }
+
     const updatedInnings = { ...currentInnings };
     const lastBall = updatedInnings.ballByBall[updatedInnings.ballByBall.length - 1];
 
@@ -706,9 +877,11 @@ const Scoring: React.FC = () => {
     // Reverse extras
     if (lastBall.extraType) {
       if (lastBall.extraType === 'wide') {
-        updatedInnings.extras.wides -= (1 + lastBall.extraRuns);
+        // extraRuns already includes the penalty (1 + extra runs)
+        updatedInnings.extras.wides -= lastBall.extraRuns;
       } else if (lastBall.extraType === 'no-ball') {
-        updatedInnings.extras.noBalls -= (1 + lastBall.extraRuns);
+        // extraRuns already includes the penalty (1 + extra runs)
+        updatedInnings.extras.noBalls -= lastBall.extraRuns;
       } else if (lastBall.extraType === 'bye') {
         updatedInnings.extras.byes -= lastBall.runs;
       } else if (lastBall.extraType === 'leg-bye') {
@@ -743,6 +916,17 @@ const Scoring: React.FC = () => {
           // Remove fall of wicket
           if (updatedInnings.fallOfWickets && updatedInnings.fallOfWickets.length > 0) {
             updatedInnings.fallOfWickets.pop();
+          }
+
+          // Restore the batsman who got out back as striker
+          batsman.isOnStrike = true;
+          setStriker(batsman);
+
+          // Find and set the non-striker from the ball record
+          const nonStrikerBatsman = updatedInnings.batsmen.find(b => b.playerName === lastBall.nonStriker);
+          if (nonStrikerBatsman) {
+            nonStrikerBatsman.isOnStrike = false;
+            setNonStriker(nonStrikerBatsman);
           }
         }
 
@@ -790,15 +974,47 @@ const Scoring: React.FC = () => {
 
     // Reverse partnership
     if (updatedInnings.partnerships) {
-      const activePartnership = updatedInnings.partnerships.find(p => p.isActive);
-      if (activePartnership) {
-        const runsToDeduct = lastBall.totalRuns || lastBall.runs;
-        if (activePartnership.runs >= runsToDeduct) {
-          activePartnership.runs -= runsToDeduct;
+      if (lastBall.isWicket) {
+        // If it was a wicket, find the partnership that was ended and reactivate it
+        const lastPartnership = updatedInnings.partnerships[updatedInnings.partnerships.length - 1];
+        if (lastPartnership && !lastPartnership.isActive) {
+          lastPartnership.isActive = true;
+          const runsToDeduct = lastBall.totalRuns || lastBall.runs;
+          if (lastPartnership.runs >= runsToDeduct) {
+            lastPartnership.runs -= runsToDeduct;
+          }
+          const validBall = !lastBall.isExtra || lastBall.extraType === 'bye' || lastBall.extraType === 'leg-bye';
+          if (validBall && lastPartnership.balls > 0) {
+            lastPartnership.balls -= 1;
+          }
         }
-        if (validBall && activePartnership.balls > 0) {
-          activePartnership.balls -= 1;
+      } else {
+        // For non-wicket balls, reverse from active partnership
+        const activePartnership = updatedInnings.partnerships.find(p => p.isActive);
+        if (activePartnership) {
+          const runsToDeduct = lastBall.totalRuns || lastBall.runs;
+          if (activePartnership.runs >= runsToDeduct) {
+            activePartnership.runs -= runsToDeduct;
+          }
+          const validBall = !lastBall.isExtra || lastBall.extraType === 'bye' || lastBall.extraType === 'leg-bye';
+          if (validBall && activePartnership.balls > 0) {
+            activePartnership.balls -= 1;
+          }
         }
+      }
+    }
+
+    // Reverse strike rotation for non-wicket balls
+    if (!lastBall.isWicket) {
+      // Restore striker and non-striker from ball record
+      const strikerBatsman = updatedInnings.batsmen.find(b => b.playerName === lastBall.batsman);
+      const nonStrikerBatsman = updatedInnings.batsmen.find(b => b.playerName === lastBall.nonStriker);
+
+      if (strikerBatsman && nonStrikerBatsman) {
+        strikerBatsman.isOnStrike = true;
+        nonStrikerBatsman.isOnStrike = false;
+        setStriker(strikerBatsman);
+        setNonStriker(nonStrikerBatsman);
       }
     }
 
@@ -815,12 +1031,15 @@ const Scoring: React.FC = () => {
 
     try {
       await updateMatch(updatedMatch);
+      setUndoCount(undoCount + 1);
       toast.success('Last ball undone');
     } catch (error) {
       console.error('Failed to undo last ball:', error);
       toast.error('Failed to undo last ball');
     }
   };
+
+  const target = currentMatch.currentInnings === 2 ? currentMatch.innings[0].runs + 1 : undefined;
 
   const getEnabledAds = () => {
     if (!currentMatch.tournamentId) return [];
@@ -836,7 +1055,7 @@ const Scoring: React.FC = () => {
 
     const adToShow = enabledAds[0];
 
-    // Try to broadcast via HTTP API (works for both web and Electron)
+    // Broadcast via HTTP API to all network instances viewing scoreboard
     try {
       const response = await fetch('http://localhost:3000/api/ad/show', {
         method: 'POST',
@@ -845,7 +1064,7 @@ const Scoring: React.FC = () => {
       });
 
       if (response.ok) {
-        toast.success('Ad broadcasted to displays!');
+        toast.success('Ad broadcasted to all scoreboards!');
         setIsAdBroadcasting(true);
 
         // Auto-stop after ad duration
@@ -857,8 +1076,7 @@ const Scoring: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to broadcast ad:', error);
-      toast.error('Server not running - showing locally');
-      setShowAdPlayer(true);
+      toast.error('Failed to broadcast ad. Make sure the server is running.');
     }
   };
 
@@ -868,14 +1086,11 @@ const Scoring: React.FC = () => {
         method: 'POST'
       });
       setIsAdBroadcasting(false);
-      toast.success('Ad stopped on displays');
+      toast.success('Ad stopped on all scoreboards');
     } catch (error) {
       console.error('Failed to stop ad:', error);
     }
-    setShowAdPlayer(false);
   };
-
-  const target = currentMatch.currentInnings === 2 ? currentMatch.innings[0].runs + 1 : undefined;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50 p-2 md:p-4">
@@ -1044,7 +1259,7 @@ const Scoring: React.FC = () => {
               OUT
             </button>
             <button
-              onClick={() => openWicketDialog(0)}
+              onClick={() => recordBall(6, true)}
               className="py-4 md:py-6 rounded-lg font-bold text-xl md:text-2xl bg-red-600 text-white hover:bg-red-700 transition-colors"
               title="Hit for 6 = OUT (local rule)"
             >
@@ -1063,13 +1278,6 @@ const Scoring: React.FC = () => {
                 Overthrow
               </button>
               <button
-                onClick={() => handleShortRun()}
-                className="py-2 px-3 rounded-lg font-semibold bg-yellow-600 text-white hover:bg-yellow-700 text-xs"
-                disabled={!striker || currentInnings.ballByBall.length === 0}
-              >
-                Short Run
-              </button>
-              <button
                 onClick={() => handleRetiredHurt()}
                 className="py-2 px-3 rounded-lg font-semibold bg-gray-600 text-white hover:bg-gray-700 text-xs"
                 disabled={!striker}
@@ -1085,7 +1293,7 @@ const Scoring: React.FC = () => {
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-4">
             <button
               onClick={() => setShowExtraInput('wide')}
               className="py-3 md:py-4 rounded-lg font-semibold bg-yellow-500 text-white hover:bg-yellow-600"
@@ -1110,169 +1318,18 @@ const Scoring: React.FC = () => {
             >
               Leg Bye
             </button>
-          </div>
-        </div>
-
-        {/* Ball by Ball Commentary & Current Over */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-          {/* Ball by Ball Live Commentary */}
-          <div className="bg-white rounded-xl shadow-lg p-4">
-            <h3 className="font-bold text-lg mb-3 flex items-center gap-2">
-              <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-              Live Commentary
-            </h3>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {currentInnings.ballByBall.length === 0 ? (
-                <p className="text-gray-500 text-sm">No balls bowled yet</p>
-              ) : (
-                [...currentInnings.ballByBall].reverse().slice(0, 10).map((ball, index) => {
-                  const ballNumber = currentInnings.ballByBall.length - index;
-                  const displayText = ball.isWicket
-                    ? `WICKET! ${ball.batsman} out`
-                    : ball.isExtra
-                      ? `${ball.extraType?.toUpperCase()} + ${ball.runs} runs`
-                      : ball.runs === 0
-                        ? 'Dot ball'
-                        : ball.runs === 4
-                          ? 'FOUR!'
-                          : `${ball.runs} run${ball.runs > 1 ? 's' : ''}`;
-
-                  return (
-                    <div
-                      key={ballNumber}
-                      className={`p-2 rounded-lg text-sm ${
-                        ball.isWicket ? 'bg-red-50 border-l-4 border-red-500' :
-                        ball.runs === 4 ? 'bg-blue-50 border-l-4 border-blue-500' :
-                        ball.isExtra ? 'bg-yellow-50 border-l-4 border-yellow-500' :
-                        'bg-gray-50'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <span className="font-semibold text-xs text-gray-600">
-                            {ball.over}.{ball.ball}
-                          </span>
-                          <p className="font-medium">{displayText}</p>
-                          <p className="text-xs text-gray-600 mt-1">
-                            {ball.bowler} to {ball.batsman}
-                          </p>
-                        </div>
-                        <span className={`font-bold ${
-                          ball.isWicket ? 'text-red-600' :
-                          ball.runs === 4 ? 'text-blue-600' :
-                          'text-gray-700'
-                        }`}>
-                          {ball.isWicket ? 'W' : ball.isExtra ? `${ball.extraType![0].toUpperCase()}` : ball.runs}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-
-          {/* Current Over */}
-          <div className="bg-white rounded-xl shadow-lg p-4">
-            <h3 className="font-bold text-lg mb-3">Current Over</h3>
-            <div className="mb-3">
-              <p className="text-sm text-gray-600">Over {currentInnings.overs}.{currentInnings.balls}</p>
-              {currentBowler && (
-                <p className="text-sm font-medium">{currentBowler.playerName} bowling</p>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {(() => {
-                const currentOverBalls = currentInnings.ballByBall.filter(b => b.over === currentInnings.overs);
-                if (currentOverBalls.length === 0) {
-                  return <p className="text-gray-500 text-sm">Over hasn't started yet</p>;
-                }
-                return currentOverBalls.map((ball, idx) => (
-                  <div
-                    key={idx}
-                    className={`w-10 h-10 flex items-center justify-center rounded-full font-bold text-sm ${
-                      ball.isWicket ? 'bg-red-500 text-white' :
-                      ball.runs === 4 ? 'bg-blue-500 text-white' :
-                      ball.isExtra ? 'bg-yellow-400 text-gray-800' :
-                      ball.runs === 0 ? 'bg-gray-300 text-gray-700' :
-                      'bg-green-500 text-white'
-                    }`}
-                    title={`${ball.bowler} to ${ball.batsman}: ${
-                      ball.isWicket ? 'WICKET' :
-                      ball.isExtra ? `${ball.extraType} + ${ball.runs}` :
-                      ball.runs === 0 ? 'Dot' :
-                      `${ball.runs} run${ball.runs > 1 ? 's' : ''}`
-                    }`}
-                  >
-                    {ball.isWicket ? 'W' : ball.isExtra ? ball.extraType![0].toUpperCase() : ball.runs}
-                  </div>
-                ));
-              })()}
-            </div>
-          </div>
-        </div>
-
-        {/* Over by Over Summary */}
-        <div className="bg-white rounded-xl shadow-lg p-4 mb-4">
-          <h3 className="font-bold text-lg mb-3">Over-by-Over Summary</h3>
-          <div className="space-y-2 max-h-80 overflow-y-auto">
-            {(() => {
-              // Group balls by over
-              const overGroups: { [key: number]: Ball[] } = {};
-              currentInnings.ballByBall.forEach(ball => {
-                if (!overGroups[ball.over]) {
-                  overGroups[ball.over] = [];
-                }
-                overGroups[ball.over].push(ball);
-              });
-
-              const overNumbers = Object.keys(overGroups).map(Number).sort((a, b) => b - a);
-
-              if (overNumbers.length === 0) {
-                return <p className="text-gray-500 text-sm">No overs completed yet</p>;
-              }
-
-              return overNumbers.map(overNum => {
-                const balls = overGroups[overNum];
-                const overRuns = balls.reduce((sum, ball) => sum + (ball.totalRuns || ball.runs), 0);
-                const overWickets = balls.filter(b => b.isWicket).length;
-                const bowlerName = balls[0]?.bowler || 'Unknown';
-
-                return (
-                  <div key={overNum} className="border rounded-lg p-3 hover:bg-gray-50 transition">
-                    <div className="flex justify-between items-center mb-2">
-                      <div>
-                        <span className="font-semibold">Over {overNum + 1}</span>
-                        <span className="text-sm text-gray-600 ml-2">({bowlerName})</span>
-                      </div>
-                      <div className="font-bold text-lg">
-                        {overRuns} run{overRuns !== 1 ? 's' : ''}
-                        {overWickets > 0 && (
-                          <span className="text-red-600 ml-2">{overWickets}W</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {balls.map((ball, idx) => (
-                        <div
-                          key={idx}
-                          className={`w-8 h-8 flex items-center justify-center rounded text-xs font-bold ${
-                            ball.isWicket ? 'bg-red-500 text-white' :
-                            ball.runs === 4 ? 'bg-blue-500 text-white' :
-                            ball.isExtra ? 'bg-yellow-400 text-gray-800' :
-                            ball.runs === 0 ? 'bg-gray-300 text-gray-700' :
-                            'bg-green-500 text-white'
-                          }`}
-                          title={`${ball.batsman}: ${ball.isWicket ? 'OUT' : `${ball.runs} run${ball.runs !== 1 ? 's' : ''}`}`}
-                        >
-                          {ball.isWicket ? 'W' : ball.isExtra ? ball.extraType![0].toUpperCase() : ball.runs}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              });
-            })()}
+            <button
+              onClick={() => handleFixedOne()}
+              className="py-3 md:py-4 rounded-lg font-semibold bg-teal-500 text-white hover:bg-teal-600 text-sm"
+            >
+              1 (Fixed)
+            </button>
+            <button
+              onClick={() => handleByeOneNoStrike()}
+              className="py-3 md:py-4 rounded-lg font-semibold bg-cyan-500 text-white hover:bg-cyan-600 text-sm"
+            >
+              Bye 1 (Fixed)
+            </button>
           </div>
         </div>
 
@@ -1286,14 +1343,18 @@ const Scoring: React.FC = () => {
               <div className="space-y-2">
                 {(showPlayerSelect === 'bowler' ? bowlingTeam : battingTeam).players
                   .filter((player) => {
-                    // Filter by playing XI first
+                    // Filter by playing XI first - STRICT: Only show playing XI players
                     const playingXI = showPlayerSelect === 'bowler'
                       ? (currentInnings.bowlingTeamId === currentMatch.team1.id ? currentMatch.team1PlayingXI : currentMatch.team2PlayingXI)
                       : (currentInnings.battingTeamId === currentMatch.team1.id ? currentMatch.team1PlayingXI : currentMatch.team2PlayingXI);
 
-                    // If playing XI is defined, only show players in playing XI
-                    if (playingXI && playingXI.length > 0 && !playingXI.includes(player.id)) {
-                      return false;
+                    // STRICT CHECK: Only allow players in playing XI
+                    // If playingXI is not defined or empty, show all players (backward compatibility)
+                    // But if it IS defined, strictly enforce it
+                    if (playingXI && playingXI.length > 0) {
+                      if (!playingXI.includes(player.id)) {
+                        return false; // Player NOT in playing XI - exclude them
+                      }
                     }
 
                     // For batsmen, exclude players who are already out (but allow retired hurt)
@@ -1362,16 +1423,21 @@ const Scoring: React.FC = () => {
                 {showExtraInput === 'leg-bye' && 'Leg Bye Runs'}
               </h2>
               <p className="text-gray-600 mb-4">
-                {showExtraInput === 'wide' && 'Select additional runs scored on this wide ball'}
-                {showExtraInput === 'no-ball' && 'Select runs scored on this no-ball'}
-                {showExtraInput === 'bye' && 'Select bye runs scored'}
-                {showExtraInput === 'leg-bye' && 'Select leg bye runs scored'}
+                {showExtraInput === 'wide' && 'Select additional runs scored on this wide ball (max 5)'}
+                {showExtraInput === 'no-ball' && 'Select runs scored on this no-ball (6 = OUT)'}
+                {showExtraInput === 'bye' && 'Select bye runs scored (max 5)'}
+                {showExtraInput === 'leg-bye' && 'Select leg bye runs scored (max 5)'}
               </p>
               <div className="grid grid-cols-4 gap-3 mb-4">
-                {[0, 1, 2, 3, 4, 5, 6].map((run) => (
+                {(showExtraInput === 'wide' || showExtraInput === 'bye' || showExtraInput === 'leg-bye' ? [0, 1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6]).map((run) => (
                   <button
                     key={run}
-                    onClick={() => handleExtraWithRuns(showExtraInput, run)}
+                    onClick={() => {
+                      if (showExtraInput === 'wide') {
+                        setPendingWideRuns(run);
+                      }
+                      handleExtraWithRuns(showExtraInput, run);
+                    }}
                     className={`py-4 rounded-lg font-bold text-xl transition-colors ${
                       run === 0 ? 'bg-gray-200 hover:bg-gray-300' :
                       run === 4 ? 'bg-blue-500 text-white hover:bg-blue-600' :
@@ -1383,6 +1449,62 @@ const Scoring: React.FC = () => {
                   </button>
                 ))}
               </div>
+              {showExtraInput === 'wide' && (
+                <div className="mb-4">
+                  <button
+                    onClick={() => {
+                      setShowExtraInput(null);
+                      setShowWideRunOutInput(true);
+                      setSelectedWicketType('run out');
+                    }}
+                    className="w-full py-3 rounded-lg font-semibold bg-red-600 text-white hover:bg-red-700"
+                  >
+                    Wide + Run Out
+                  </button>
+                </div>
+              )}
+              {showExtraInput === 'no-ball' && (
+                <div className="mb-4">
+                  <button
+                    onClick={() => {
+                      setShowExtraInput(null);
+                      setShowNoBallRunOutInput(true);
+                      setSelectedWicketType('run out');
+                    }}
+                    className="w-full py-3 rounded-lg font-semibold bg-red-600 text-white hover:bg-red-700"
+                  >
+                    No Ball + Run Out
+                  </button>
+                </div>
+              )}
+              {showExtraInput === 'bye' && (
+                <div className="mb-4">
+                  <button
+                    onClick={() => {
+                      setShowExtraInput(null);
+                      setShowByeRunOutInput(true);
+                      setSelectedWicketType('run out');
+                    }}
+                    className="w-full py-3 rounded-lg font-semibold bg-red-600 text-white hover:bg-red-700"
+                  >
+                    Bye + Run Out
+                  </button>
+                </div>
+              )}
+              {showExtraInput === 'leg-bye' && (
+                <div className="mb-4">
+                  <button
+                    onClick={() => {
+                      setShowExtraInput(null);
+                      setShowLegByeRunOutInput(true);
+                      setSelectedWicketType('run out');
+                    }}
+                    className="w-full py-3 rounded-lg font-semibold bg-red-600 text-white hover:bg-red-700"
+                  >
+                    Leg Bye + Run Out
+                  </button>
+                </div>
+              )}
               <button
                 onClick={() => setShowExtraInput(null)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
@@ -1422,6 +1544,187 @@ const Scoring: React.FC = () => {
           </div>
         )}
 
+        {/* Wide + Run Out Runs Input */}
+        {showWideRunOutInput && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full">
+              <h2 className="text-2xl font-bold mb-4">Wide + Run Out</h2>
+              <p className="text-gray-600 mb-4">
+                How many runs were scored before the run out?
+              </p>
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                {[0, 1, 2, 3, 4, 5].map((run) => (
+                  <button
+                    key={run}
+                    onClick={() => handleWideRunOut(run)}
+                    className="py-4 rounded-lg font-bold text-xl bg-red-500 text-white hover:bg-red-600 transition-colors"
+                  >
+                    {run}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => {
+                  setShowWideRunOutInput(false);
+                  setShowExtraInput('wide'); // Go back to wide input
+                }}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* No Ball + Run Out Runs Input */}
+        {showNoBallRunOutInput && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full">
+              <h2 className="text-2xl font-bold mb-4">No Ball + Run Out</h2>
+              <p className="text-gray-600 mb-4">
+                How many runs were scored before the run out?
+              </p>
+              <div className="grid grid-cols-4 gap-3 mb-4">
+                {[0, 1, 2, 3, 4, 5, 6].map((run) => (
+                  <button
+                    key={run}
+                    onClick={() => handleNoBallRunOut(run)}
+                    className="py-4 rounded-lg font-bold text-xl bg-red-500 text-white hover:bg-red-600 transition-colors"
+                  >
+                    {run}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => {
+                  setShowNoBallRunOutInput(false);
+                  setShowExtraInput('no-ball'); // Go back to no-ball input
+                }}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Bye + Run Out Runs Input */}
+        {showByeRunOutInput && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full">
+              <h2 className="text-2xl font-bold mb-4">Bye + Run Out</h2>
+              <p className="text-gray-600 mb-4">
+                How many runs were scored before the run out?
+              </p>
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                {[0, 1, 2, 3, 4, 5].map((run) => (
+                  <button
+                    key={run}
+                    onClick={() => handleByeRunOut(run)}
+                    className="py-4 rounded-lg font-bold text-xl bg-red-500 text-white hover:bg-red-600 transition-colors"
+                  >
+                    {run}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => {
+                  setShowByeRunOutInput(false);
+                  setShowExtraInput('bye'); // Go back to bye input
+                }}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Leg Bye + Run Out Runs Input */}
+        {showLegByeRunOutInput && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full">
+              <h2 className="text-2xl font-bold mb-4">Leg Bye + Run Out</h2>
+              <p className="text-gray-600 mb-4">
+                How many runs were scored before the run out?
+              </p>
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                {[0, 1, 2, 3, 4, 5].map((run) => (
+                  <button
+                    key={run}
+                    onClick={() => handleLegByeRunOut(run)}
+                    className="py-4 rounded-lg font-bold text-xl bg-red-500 text-white hover:bg-red-600 transition-colors"
+                  >
+                    {run}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => {
+                  setShowLegByeRunOutInput(false);
+                  setShowExtraInput('leg-bye'); // Go back to leg-bye input
+                }}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Batsman Run Out Selection Modal */}
+        {showBatsmanRunOutSelect && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full">
+              <h2 className="text-2xl font-bold mb-4">Run Out</h2>
+              <p className="text-gray-600 mb-4">
+                Which batsman got run out?
+              </p>
+              <div className="space-y-3 mb-4">
+                <button
+                  onClick={() => handleBatsmanRunOutSelection('striker')}
+                  className="w-full p-4 rounded-lg font-semibold bg-blue-500 text-white hover:bg-blue-600 transition-colors"
+                >
+                  <div className="text-left">
+                    <div className="text-lg font-bold">Striker: {striker?.playerName || 'Not selected'}</div>
+                    {striker && (
+                      <div className="text-sm opacity-90">
+                        {striker.runs}({striker.balls}) - SR: {striker.strikeRate}
+                      </div>
+                    )}
+                  </div>
+                </button>
+                <button
+                  onClick={() => handleBatsmanRunOutSelection('non-striker')}
+                  className="w-full p-4 rounded-lg font-semibold bg-green-500 text-white hover:bg-green-600 transition-colors"
+                >
+                  <div className="text-left">
+                    <div className="text-lg font-bold">Non-Striker: {nonStriker?.playerName || 'Not selected'}</div>
+                    {nonStriker && (
+                      <div className="text-sm opacity-90">
+                        {nonStriker.runs}({nonStriker.balls}) - SR: {nonStriker.strikeRate}
+                      </div>
+                    )}
+                  </div>
+                </button>
+              </div>
+              <button
+                onClick={() => {
+                  setShowBatsmanRunOutSelect(false);
+                  // Go back to the appropriate runs input dialog
+                  if (pendingExtraType === 'wide') setShowWideRunOutInput(true);
+                  else if (pendingExtraType === 'no-ball') setShowNoBallRunOutInput(true);
+                  else if (pendingExtraType === 'bye') setShowByeRunOutInput(true);
+                  else if (pendingExtraType === 'leg-bye') setShowLegByeRunOutInput(true);
+                }}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Back
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Wicket Type Selector Modal */}
         {showWicketTypeDialog && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -1438,10 +1741,7 @@ const Scoring: React.FC = () => {
                   { value: 'run out', label: 'Run Out', emoji: '🏃' },
                   { value: 'stumped', label: 'Stumped', emoji: '🧤' },
                   { value: 'hit wicket', label: 'Hit Wicket', emoji: '💥' },
-                  { value: 'caught & bowled', label: 'C & B', emoji: '🎯🤲' },
-                  { value: 'obstructing', label: 'Obstructing', emoji: '🚫' },
-                  { value: 'handled ball', label: 'Handled Ball', emoji: '✋' },
-                  { value: 'timed out', label: 'Timed Out', emoji: '⏰' }
+                  { value: 'caught & bowled', label: 'C & B', emoji: '🎯🤲' }
                 ].map((type) => (
                   <button
                     key={type.value}
@@ -1476,8 +1776,13 @@ const Scoring: React.FC = () => {
                   <button
                     key={player.id}
                     onClick={async () => {
-                      setShowFielderSelect(false);
-                      await recordBall(pendingWicketRuns, true, undefined, 0, selectedWicketType, player.name);
+                      // Check if this is an extra+runout case
+                      if (selectedWicketType === 'run out' && pendingExtraType) {
+                        handleRunOutWithFielder(player.name);
+                      } else {
+                        setShowFielderSelect(false);
+                        await recordBall(pendingWicketRuns, true, undefined, 0, selectedWicketType, player.name);
+                      }
                     }}
                     className="w-full p-3 bg-gray-50 hover:bg-blue-100 rounded-lg text-left transition-colors"
                   >
@@ -1540,16 +1845,6 @@ const Scoring: React.FC = () => {
           cancelText="Stay"
           variant="warning"
         />
-
-        {/* Ad Player */}
-        {showAdPlayer && getEnabledAds().length > 0 && (
-          <div className="fixed inset-0 z-50">
-            <AdPlayer
-              ad={getEnabledAds()[0]}
-              onClose={() => setShowAdPlayer(false)}
-            />
-          </div>
-        )}
 
         {/* Innings Summary */}
         {showInningsSummary && currentMatch.innings.length > 0 && (

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import toast from 'react-hot-toast';
+import { toast } from 'react-toastify';
 import { useApp } from '../contexts/AppContext';
 import { ArrowLeft, Save } from 'lucide-react';
 import { convertImageToBase64 } from '../utils/helpers';
@@ -152,7 +152,7 @@ const TournamentSettings: React.FC = () => {
                   Players per Team (Tournament Format)
                 </label>
                 <input
-                  type="number"
+                  type="text"
                   value={tournament.playersPerTeam}
                   readOnly
                   disabled

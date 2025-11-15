@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import toast from 'react-hot-toast';
+import { toast } from 'react-toastify';
 import { useApp } from '../contexts/AppContext';
 import { ArrowLeft, Plus, Film, Trash2, Play, Eye, EyeOff, Upload } from 'lucide-react';
 import { generateId } from '../utils/helpers';

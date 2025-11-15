@@ -78,7 +78,26 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       // Load tournaments
       const tournamentsResult = await api.getAllTournaments();
       if (tournamentsResult.success) {
-        setTournaments(tournamentsResult.data || []);
+        let tournaments = tournamentsResult.data || [];
+
+        // Migration: Update old tournaments with default playersPerTeam if not set
+        let needsUpdate = false;
+        tournaments = tournaments.map((t: Tournament) => {
+          if (!t.playersPerTeam || t.playersPerTeam === 11) {
+            needsUpdate = true;
+            return { ...t, playersPerTeam: 6 }; // Default to 6v6 format
+          }
+          return t;
+        });
+
+        // Save migrated tournaments back
+        if (needsUpdate) {
+          for (const tournament of tournaments) {
+            await api.updateTournament(tournament.id, tournament);
+          }
+        }
+
+        setTournaments(tournaments);
       }
 
       // Load current match

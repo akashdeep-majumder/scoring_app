@@ -77,6 +77,8 @@ function createTables() {
       tournament_id TEXT NOT NULL,
       team1_id TEXT NOT NULL,
       team2_id TEXT NOT NULL,
+      team1_playing_xi TEXT,
+      team2_playing_xi TEXT,
       toss_winner TEXT,
       toss_decision TEXT,
       batting_first TEXT,
@@ -115,6 +117,15 @@ function createTables() {
       FOREIGN KEY (bowling_team_id) REFERENCES teams (id)
     )
   `);
+
+  // Add new columns to existing matches table if they don't exist
+  try {
+    db.exec(`ALTER TABLE matches ADD COLUMN team1_playing_xi TEXT`);
+  } catch (e) { /* Column already exists */ }
+
+  try {
+    db.exec(`ALTER TABLE matches ADD COLUMN team2_playing_xi TEXT`);
+  } catch (e) { /* Column already exists */ }
 
   // Add new columns to existing innings table if they don't exist
   try {

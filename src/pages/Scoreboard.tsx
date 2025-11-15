@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useApp } from '../contexts/AppContext';
 import { formatOvers, getTotalBalls, getCurrentRunRate, getRequiredRunRate } from '../utils/helpers';
-import { Trophy, X } from 'lucide-react';
+import { Trophy, X, Volume2, VolumeX } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import { isElectron } from '../utils/api';
 import type { Ad } from '../types';
@@ -14,6 +14,7 @@ const Scoreboard: React.FC = () => {
   const [currentAd, setCurrentAd] = useState<number>(0);
   const [broadcastAd, setBroadcastAd] = useState<Ad | null>(null);
   const [activeTab, setActiveTab] = useState<'live' | 'overs' | 'scoreboard'>('live');
+  const [isMuted, setIsMuted] = useState(true);
   const socketRef = useRef<Socket | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -63,27 +64,29 @@ const Scoreboard: React.FC = () => {
       console.log('Received ad display request:', ad);
       setBroadcastAd(ad);
       setShowAd(false); // Disable auto-rotation ads
-
-      // Auto-play video
-      if (videoRef.current && ad.filePath) {
-        videoRef.current.src = ad.filePath;
-        videoRef.current.play().catch(err => console.error('Auto-play failed:', err));
-      }
     });
 
     socket.on('ad:close', () => {
       console.log('Received ad close request');
       setBroadcastAd(null);
-      if (videoRef.current) {
-        videoRef.current.pause();
-        videoRef.current.src = '';
-      }
     });
 
     return () => {
       socket.disconnect();
     };
   }, []);
+
+  // Auto-play broadcast ad when it changes
+  useEffect(() => {
+    if (broadcastAd && videoRef.current) {
+      console.log('Broadcast ad changed, attempting to play');
+      videoRef.current.load();
+      videoRef.current.play().catch(err => {
+        console.error('Auto-play failed:', err);
+        console.log('User interaction may be required to play video');
+      });
+    }
+  }, [broadcastAd]);
 
   // Ad rotation every 2 minutes during match (only if not showing broadcast ads)
   useEffect(() => {
@@ -148,16 +151,36 @@ const Scoreboard: React.FC = () => {
   // Show broadcast ad (from "Show Ad" button) with priority
   if (broadcastAd) {
     return (
-      <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
+      <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center">
+        {/* Ad Name at Top */}
+        <div className="absolute top-8 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-80 text-white px-8 py-4 rounded-lg shadow-2xl">
+          <p className="text-3xl font-bold tracking-wide">{broadcastAd.name}</p>
+        </div>
+
+        {/* Mute/Unmute Button */}
+        <button
+          onClick={() => {
+            setIsMuted(!isMuted);
+            if (videoRef.current) {
+              videoRef.current.muted = !isMuted;
+            }
+          }}
+          className="absolute bottom-8 right-8 bg-black bg-opacity-70 hover:bg-opacity-90 text-white p-4 rounded-full transition-all shadow-2xl z-10"
+        >
+          {isMuted ? <VolumeX className="w-8 h-8" /> : <Volume2 className="w-8 h-8" />}
+        </button>
+
+        {/* Full-screen Video without controls */}
         <video
           ref={videoRef}
-          className="max-w-full max-h-full"
+          src={broadcastAd.filePath}
+          className="w-full h-full object-contain"
           onEnded={handleBroadcastVideoEnded}
-          controls
+          autoPlay
+          muted={isMuted}
+          playsInline
+          loop={false}
         />
-        <div className="absolute top-8 right-8 bg-red-500 text-white px-6 py-3 rounded-lg">
-          <p className="text-xl font-semibold">LIVE AD</p>
-        </div>
       </div>
     );
   }
@@ -165,12 +188,29 @@ const Scoreboard: React.FC = () => {
   // Show auto-rotation ad
   if (showAd && adToShow) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
+      <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center">
+        {/* Ad Name at Top */}
+        <div className="absolute top-8 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-80 text-white px-8 py-4 rounded-lg shadow-2xl">
+          <p className="text-3xl font-bold tracking-wide">{adToShow.name}</p>
+        </div>
+
+        {/* Mute/Unmute Button */}
+        <button
+          onClick={() => setIsMuted(!isMuted)}
+          className="absolute bottom-8 right-8 bg-black bg-opacity-70 hover:bg-opacity-90 text-white p-4 rounded-full transition-all shadow-2xl z-10"
+        >
+          {isMuted ? <VolumeX className="w-8 h-8" /> : <Volume2 className="w-8 h-8" />}
+        </button>
+
+        {/* Full-screen Video without controls */}
         <video
           src={adToShow.filePath}
           autoPlay
-          className="max-w-full max-h-screen"
+          muted={isMuted}
+          playsInline
+          className="w-full h-full object-contain"
           onEnded={() => setShowAd(false)}
+          loop={false}
         />
       </div>
     );
@@ -425,7 +465,7 @@ const Scoreboard: React.FC = () => {
                   <div key={overNum} className="border border-white border-opacity-20 rounded-xl p-4 hover:bg-white hover:bg-opacity-5 transition">
                     <div className="flex justify-between items-center mb-3">
                       <div>
-                        <span className="text-2xl font-bold">Over {overNum + 1}</span>
+                        <span className="text-2xl font-bold">Over {overNum}</span>
                         <span className="text-lg text-gray-300 ml-3">({bowlerName})</span>
                       </div>
                       <div className="text-2xl font-bold">

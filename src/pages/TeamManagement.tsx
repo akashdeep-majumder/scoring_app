@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import toast from 'react-hot-toast';
+import { toast } from 'react-toastify';
 import { useApp } from '../contexts/AppContext';
 import { ArrowLeft, Plus, Users, Upload, Download, Trash2, Edit, Check, X, Image } from 'lucide-react';
 import { generateId, convertImageToBase64 } from '../utils/helpers';

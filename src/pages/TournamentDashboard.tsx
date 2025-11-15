@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import toast from 'react-hot-toast';
+import { toast } from 'react-toastify';
 import { useApp } from '../contexts/AppContext';
 import {
   ArrowLeft, Users, PlayCircle, Settings, TvMinimal,

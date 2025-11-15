@@ -132,16 +132,19 @@ const TournamentSelection: React.FC = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Players per Team
+                    Players per Team (Match Format)
                   </label>
                   <input
                     type="number"
                     value={playersPerTeam}
                     onChange={(e) => setPlayersPerTeam(parseInt(e.target.value))}
-                    min="11"
+                    min="6"
                     max="16"
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
                   />
+                  <p className="mt-2 text-sm text-gray-500">
+                    Number of players in playing XI (e.g., 6 for 6v6, 8 for 8v8, 11 for 11v11)
+                  </p>
                 </div>
               </div>
 

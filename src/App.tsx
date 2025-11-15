@@ -1,5 +1,6 @@
 import { HashRouter as Router, Routes, Route } from 'react-router-dom';
-import { Toaster } from 'react-hot-toast';
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 import { AppProvider } from './contexts/AppContext';
 import TournamentSelection from './pages/TournamentSelection';
 import TournamentDashboard from './pages/TournamentDashboard';
@@ -29,34 +30,17 @@ function App() {
           <Route path="/scoreboard" element={<NetworkScoreboard />} />
         </Routes>
       </Router>
-      <Toaster
+      <ToastContainer
         position="top-right"
-        toastOptions={{
-          duration: 4000,
-          style: {
-            background: '#363636',
-            color: '#fff',
-            padding: '16px',
-            borderRadius: '8px',
-          },
-          success: {
-            iconTheme: {
-              primary: '#10b981',
-              secondary: '#fff',
-            },
-          },
-          error: {
-            duration: 6000,
-            iconTheme: {
-              primary: '#ef4444',
-              secondary: '#fff',
-            },
-          },
-        }}
-        containerStyle={{
-          top: 20,
-          right: 20,
-        }}
+        autoClose={4000}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick={true}
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="dark"
       />
     </AppProvider>
   );

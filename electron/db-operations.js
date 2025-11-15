@@ -264,6 +264,8 @@ function getMatchesByTournament(tournamentId) {
       tournamentId: match.tournament_id,
       team1,
       team2,
+      team1PlayingXI: match.team1_playing_xi ? JSON.parse(match.team1_playing_xi) : [],
+      team2PlayingXI: match.team2_playing_xi ? JSON.parse(match.team2_playing_xi) : [],
       tossWinner: match.toss_winner,
       tossDecision: match.toss_decision,
       battingFirst: match.batting_first,
@@ -291,6 +293,8 @@ function getCurrentMatch() {
     tournamentId: match.tournament_id,
     team1,
     team2,
+    team1PlayingXI: match.team1_playing_xi ? JSON.parse(match.team1_playing_xi) : [],
+    team2PlayingXI: match.team2_playing_xi ? JSON.parse(match.team2_playing_xi) : [],
     tossWinner: match.toss_winner,
     tossDecision: match.toss_decision,
     battingFirst: match.batting_first,
@@ -305,8 +309,8 @@ function getCurrentMatch() {
 function addMatch(match) {
   const db = getDatabase();
   const stmt = db.prepare(`
-    INSERT INTO matches (id, tournament_id, team1_id, team2_id, toss_winner, toss_decision, batting_first, overs, status, current_innings, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO matches (id, tournament_id, team1_id, team2_id, team1_playing_xi, team2_playing_xi, toss_winner, toss_decision, batting_first, overs, status, current_innings, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmt.run(
@@ -314,6 +318,8 @@ function addMatch(match) {
     match.tournamentId,
     match.team1.id,
     match.team2.id,
+    match.team1PlayingXI ? JSON.stringify(match.team1PlayingXI) : null,
+    match.team2PlayingXI ? JSON.stringify(match.team2PlayingXI) : null,
     match.tossWinner || null,
     match.tossDecision || null,
     match.battingFirst || null,
@@ -337,7 +343,7 @@ function updateMatch(matchData) {
   const db = getDatabase();
   const stmt = db.prepare(`
     UPDATE matches
-    SET status = ?, current_innings = ?, toss_winner = ?, toss_decision = ?, batting_first = ?
+    SET status = ?, current_innings = ?, toss_winner = ?, toss_decision = ?, batting_first = ?, team1_playing_xi = ?, team2_playing_xi = ?
     WHERE id = ?
   `);
 
@@ -347,6 +353,8 @@ function updateMatch(matchData) {
     matchData.tossWinner || null,
     matchData.tossDecision || null,
     matchData.battingFirst || null,
+    matchData.team1PlayingXI ? JSON.stringify(matchData.team1PlayingXI) : null,
+    matchData.team2PlayingXI ? JSON.stringify(matchData.team2PlayingXI) : null,
     matchData.id
   );
 
