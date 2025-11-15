@@ -1,9 +1,29 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Trophy, Users, Play, Settings, TvMinimal } from 'lucide-react';
+import { Trophy, Users, Play, Settings, TvMinimal, Wifi, Copy } from 'lucide-react';
+import { toast } from 'react-toastify';
 
 const Home: React.FC = () => {
   const navigate = useNavigate();
+  const [serverInfo, setServerInfo] = useState<{ ip: string; port: number } | null>(null);
+
+  useEffect(() => {
+    // Get server info
+    const getServerInfo = async () => {
+      if ((window as any).electronAPI) {
+        const result = await (window as any).electronAPI.getServerInfo();
+        if (result.success && result.data) {
+          setServerInfo({ ip: result.data.ip, port: result.data.port });
+        }
+      }
+    };
+    getServerInfo();
+  }, []);
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success('Copied to clipboard!');
+  };
 
   const menuItems = [
     {
@@ -75,6 +95,40 @@ const Home: React.FC = () => {
             );
           })}
         </div>
+
+        {/* Network Scoreboard Info */}
+        {serverInfo && (
+          <div className="mt-12 bg-white rounded-2xl p-6 shadow-lg">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="bg-green-500 w-12 h-12 rounded-full flex items-center justify-center">
+                  <Wifi className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-800">Network Scoreboard URL</h3>
+                  <p className="text-sm text-gray-600">Access from any device on your network</p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-4">
+                <div className="text-right">
+                  <p className="text-2xl font-mono font-bold text-blue-600">
+                    http://{serverInfo.ip}:{serverInfo.port}/scoreboard
+                  </p>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Also available at: http://localhost:{serverInfo.port}/scoreboard
+                  </p>
+                </div>
+                <button
+                  onClick={() => copyToClipboard(`http://${serverInfo.ip}:${serverInfo.port}/scoreboard`)}
+                  className="bg-blue-500 hover:bg-blue-600 text-white p-3 rounded-lg transition-colors"
+                  title="Copy URL"
+                >
+                  <Copy className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

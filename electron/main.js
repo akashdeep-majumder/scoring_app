@@ -27,6 +27,17 @@ app.whenReady().then(async () => {
       closeAd: server.broadcastCloseAd
     };
     console.log('Express server started successfully');
+    console.log(`Network URL: http://${server.localIP}:${server.port}/scoreboard`);
+
+    // Show a system notification with server info
+    const { Notification } = require('electron');
+    if (Notification.isSupported()) {
+      new Notification({
+        title: 'Cricket Scoring Server Started',
+        body: `Network Scoreboard: http://${server.localIP}:${server.port}/scoreboard\n\nAccess from any device on your network!`,
+        timeoutType: 'never'
+      }).show();
+    }
   } catch (error) {
     console.error('Failed to start Express server:', error);
     // Continue without server - app will work in local mode
@@ -59,8 +70,10 @@ function createMainWindow() {
     icon: path.join(__dirname, '../public/cricket-icon.png')
   });
 
-  // Always open DevTools for debugging
-  mainWindow.webContents.openDevTools();
+  // Open DevTools only in development
+  if (process.env.NODE_ENV === 'development') {
+    mainWindow.webContents.openDevTools();
+  }
 
   // Log console messages from renderer
   mainWindow.webContents.on('console-message', (event, level, message) => {
