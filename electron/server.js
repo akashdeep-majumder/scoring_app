@@ -623,25 +623,31 @@ function startServer(port = 3000) {
       });
     } else {
       // In production, serve the built files
-      // Try multiple possible locations for dist folder in packaged app
+      // When packaged, dist is unpacked to app.asar.unpacked folder
       const possibleDistPaths = [
-        path.join(__dirname, '../dist'),
-        path.join(process.resourcesPath, 'app/dist'),
-        path.join(process.resourcesPath, 'dist'),
-        path.join(__dirname, '../../dist')
+        path.join(__dirname, '../dist'),                              // Inside asar (won't work for static files)
+        path.join(process.resourcesPath, 'app.asar.unpacked/dist'),  // Unpacked location (CORRECT)
+        path.join(process.resourcesPath, 'app/dist'),                // Alternative
+        path.join(process.resourcesPath, 'dist'),                    // Alternative
+        path.join(__dirname, '../../dist')                           // Development fallback
       ];
 
       let distPath = null;
+      console.log('Searching for dist folder...');
+      console.log('__dirname:', __dirname);
+      console.log('process.resourcesPath:', process.resourcesPath);
+
       for (const testPath of possibleDistPaths) {
+        console.log(`Testing: ${testPath} - exists: ${fs.existsSync(testPath)}`);
         if (fs.existsSync(testPath)) {
           distPath = testPath;
-          console.log(`Found dist folder at: ${distPath}`);
+          console.log(`✓ Found dist folder at: ${distPath}`);
           break;
         }
       }
 
       if (!distPath) {
-        console.error('Could not find dist folder in any expected location!');
+        console.error('✗ Could not find dist folder in any expected location!');
         console.error('Tried locations:', possibleDistPaths);
         distPath = path.join(__dirname, '../dist'); // Fallback
       }

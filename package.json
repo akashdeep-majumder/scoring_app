@@ -63,6 +63,9 @@
       "node_modules/**/*",
       "package.json"
     ],
+    "asarUnpack": [
+      "dist/**/*"
+    ],
     "directories": {
       "buildResources": "assets",
       "output": "release"
