@@ -1,11 +1,12 @@
-const Database = require('better-sqlite3');
+const initSqlJs = require('sql.js');
 const path = require('path');
 const fs = require('fs');
 
 let db = null;
+let SQL = null;
 
 // Initialize database
-function initDatabase() {
+async function initDatabase() {
   try {
     // Import app only when needed (after Electron is ready)
     const { app } = require('electron');
@@ -19,10 +20,92 @@ function initDatabase() {
       fs.mkdirSync(userDataPath, { recursive: true });
     }
 
-    db = new Database(dbPath);
-    db.pragma('journal_mode = WAL'); // Better performance
+    // Initialize sql.js
+    SQL = await initSqlJs();
+
+    // Load existing database or create new one
+    let dbData;
+    if (fs.existsSync(dbPath)) {
+      dbData = fs.readFileSync(dbPath);
+      db = new SQL.Database(dbData);
+      console.log('Existing database loaded');
+    } else {
+      db = new SQL.Database();
+      console.log('New database created');
+    }
+
+    // Save database to file whenever changes are made
+    db.saveToDisk = function() {
+      const data = db.export();
+      const buffer = Buffer.from(data);
+      fs.writeFileSync(dbPath, buffer);
+    };
+
+    // Store the original sql.js prepare method
+    const originalPrepare = db.prepare.bind(db);
+
+    // Add compatibility wrapper to make sql.js work like better-sqlite3
+    db.prepare = function(sql) {
+      // Create the actual sql.js prepared statement
+      const stmt = originalPrepare(sql);
+
+      return {
+        run: (...params) => {
+          try {
+            // Bind parameters and run the statement
+            stmt.bind(params);
+            stmt.step();
+            stmt.reset();
+            db.saveToDisk(); // Auto-save after write operations
+            return { changes: db.getRowsModified() };
+          } catch (e) {
+            console.error('Error in prepared statement run:', e);
+            throw e;
+          }
+        },
+        get: (...params) => {
+          try {
+            // Bind parameters and get one result
+            stmt.bind(params);
+            if (stmt.step()) {
+              const row = stmt.getAsObject();
+              stmt.reset();
+              return row;
+            }
+            stmt.reset();
+            return undefined;
+          } catch (e) {
+            console.error('Error in prepared statement get:', e);
+            throw e;
+          }
+        },
+        all: (...params) => {
+          try {
+            // Bind parameters and get all results
+            stmt.bind(params);
+            const results = [];
+            while (stmt.step()) {
+              results.push(stmt.getAsObject());
+            }
+            stmt.reset();
+            return results;
+          } catch (e) {
+            console.error('Error in prepared statement all:', e);
+            throw e;
+          }
+        },
+        // Forward the free() method to the actual statement
+        free: () => {
+          stmt.free();
+        }
+      };
+    };
 
     createTables();
+
+    // Save initial schema
+    db.saveToDisk();
+
     console.log('Database initialized successfully');
 
     return db;
@@ -35,7 +118,7 @@ function initDatabase() {
 // Create all tables
 function createTables() {
   // Tournaments table
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS tournaments (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -48,7 +131,7 @@ function createTables() {
   `);
 
   // Teams table
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS teams (
       id TEXT PRIMARY KEY,
       tournament_id TEXT NOT NULL,
@@ -59,7 +142,7 @@ function createTables() {
   `);
 
   // Players table
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS players (
       id TEXT PRIMARY KEY,
       team_id TEXT NOT NULL,
@@ -71,7 +154,7 @@ function createTables() {
   `);
 
   // Matches table
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS matches (
       id TEXT PRIMARY KEY,
       tournament_id TEXT NOT NULL,
@@ -93,7 +176,7 @@ function createTables() {
   `);
 
   // Innings table
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS innings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       match_id TEXT NOT NULL,
@@ -120,32 +203,32 @@ function createTables() {
 
   // Add new columns to existing matches table if they don't exist
   try {
-    db.exec(`ALTER TABLE matches ADD COLUMN team1_playing_xi TEXT`);
+    db.run(`ALTER TABLE matches ADD COLUMN team1_playing_xi TEXT`);
   } catch (e) { /* Column already exists */ }
 
   try {
-    db.exec(`ALTER TABLE matches ADD COLUMN team2_playing_xi TEXT`);
+    db.run(`ALTER TABLE matches ADD COLUMN team2_playing_xi TEXT`);
   } catch (e) { /* Column already exists */ }
 
   // Add new columns to existing innings table if they don't exist
   try {
-    db.exec(`ALTER TABLE innings ADD COLUMN extras_penalties INTEGER NOT NULL DEFAULT 0`);
+    db.run(`ALTER TABLE innings ADD COLUMN extras_penalties INTEGER NOT NULL DEFAULT 0`);
   } catch (e) { /* Column already exists */ }
 
   try {
-    db.exec(`ALTER TABLE innings ADD COLUMN is_declared INTEGER NOT NULL DEFAULT 0`);
+    db.run(`ALTER TABLE innings ADD COLUMN is_declared INTEGER NOT NULL DEFAULT 0`);
   } catch (e) { /* Column already exists */ }
 
   try {
-    db.exec(`ALTER TABLE innings ADD COLUMN is_all_out INTEGER NOT NULL DEFAULT 0`);
+    db.run(`ALTER TABLE innings ADD COLUMN is_all_out INTEGER NOT NULL DEFAULT 0`);
   } catch (e) { /* Column already exists */ }
 
   try {
-    db.exec(`ALTER TABLE innings ADD COLUMN target_score INTEGER`);
+    db.run(`ALTER TABLE innings ADD COLUMN target_score INTEGER`);
   } catch (e) { /* Column already exists */ }
 
   // Batsman Stats table
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS batsman_stats (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       innings_id INTEGER NOT NULL,
@@ -170,23 +253,23 @@ function createTables() {
 
   // Add new columns to existing batsman_stats table
   try {
-    db.exec(`ALTER TABLE batsman_stats ADD COLUMN is_retired_hurt INTEGER NOT NULL DEFAULT 0`);
+    db.run(`ALTER TABLE batsman_stats ADD COLUMN is_retired_hurt INTEGER NOT NULL DEFAULT 0`);
   } catch (e) { /* Column already exists */ }
 
   try {
-    db.exec(`ALTER TABLE batsman_stats ADD COLUMN can_return INTEGER NOT NULL DEFAULT 1`);
+    db.run(`ALTER TABLE batsman_stats ADD COLUMN can_return INTEGER NOT NULL DEFAULT 1`);
   } catch (e) { /* Column already exists */ }
 
   try {
-    db.exec(`ALTER TABLE batsman_stats ADD COLUMN dismissal_over INTEGER`);
+    db.run(`ALTER TABLE batsman_stats ADD COLUMN dismissal_over INTEGER`);
   } catch (e) { /* Column already exists */ }
 
   try {
-    db.exec(`ALTER TABLE batsman_stats ADD COLUMN dismissal_ball INTEGER`);
+    db.run(`ALTER TABLE batsman_stats ADD COLUMN dismissal_ball INTEGER`);
   } catch (e) { /* Column already exists */ }
 
   // Bowler Stats table
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS bowler_stats (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       innings_id INTEGER NOT NULL,
@@ -204,7 +287,7 @@ function createTables() {
   `);
 
   // Balls (Ball-by-ball) table
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS balls (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       innings_id INTEGER NOT NULL,
@@ -224,7 +307,7 @@ function createTables() {
   `);
 
   // Fall of Wickets table
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS fall_of_wickets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       innings_id INTEGER NOT NULL,
@@ -241,7 +324,7 @@ function createTables() {
   `);
 
   // Partnerships table
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS partnerships (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       innings_id INTEGER NOT NULL,
@@ -255,7 +338,7 @@ function createTables() {
   `);
 
   // Ads table (tournament-specific)
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS ads (
       id TEXT PRIMARY KEY,
       tournament_id TEXT NOT NULL,
@@ -270,7 +353,7 @@ function createTables() {
   `);
 
   // Ad chunks table (for chunked video storage)
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS ad_chunks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       ad_id TEXT NOT NULL,
@@ -282,7 +365,7 @@ function createTables() {
   `);
 
   // Ad display log
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS ad_display_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       tournament_id TEXT NOT NULL,
@@ -296,17 +379,17 @@ function createTables() {
   `);
 
   // Create indexes for better performance
-  db.exec(`
+  db.run(`
     CREATE INDEX IF NOT EXISTS idx_teams_tournament ON teams(tournament_id);
-    CREATE INDEX IF NOT EXISTS idx_players_team ON players(team_id);
-    CREATE INDEX IF NOT EXISTS idx_matches_tournament ON matches(tournament_id);
-    CREATE INDEX IF NOT EXISTS idx_innings_match ON innings(match_id);
-    CREATE INDEX IF NOT EXISTS idx_batsman_stats_innings ON batsman_stats(innings_id);
-    CREATE INDEX IF NOT EXISTS idx_bowler_stats_innings ON bowler_stats(innings_id);
-    CREATE INDEX IF NOT EXISTS idx_balls_innings ON balls(innings_id);
-    CREATE INDEX IF NOT EXISTS idx_ads_tournament ON ads(tournament_id);
-    CREATE INDEX IF NOT EXISTS idx_ad_chunks_ad ON ad_chunks(ad_id);
   `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_players_team ON players(team_id);`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_matches_tournament ON matches(tournament_id);`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_innings_match ON innings(match_id);`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_batsman_stats_innings ON batsman_stats(innings_id);`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_bowler_stats_innings ON bowler_stats(innings_id);`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_balls_innings ON balls(innings_id);`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_ads_tournament ON ads(tournament_id);`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_ad_chunks_ad ON ad_chunks(ad_id);`);
 
   console.log('All tables created successfully');
 }
@@ -322,6 +405,12 @@ function getDatabase() {
 // Close database
 function closeDatabase() {
   if (db) {
+    // Save before closing
+    try {
+      db.saveToDisk();
+    } catch (e) {
+      console.error('Error saving database on close:', e);
+    }
     db.close();
     db = null;
   }

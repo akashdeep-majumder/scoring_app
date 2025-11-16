@@ -1,49 +1,116 @@
+// Log to temp file immediately to verify main.js is loading
+const fs = require('fs');
+fs.writeFileSync('/tmp/cricket-main-loading.log', `main.js started loading at ${new Date().toISOString()}\n`);
+
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
-const fs = require('fs');
+
+fs.appendFileSync('/tmp/cricket-main-loading.log', `Electron modules loaded successfully\n`);
 const { initDatabase, closeDatabase } = require('./database');
+fs.appendFileSync('/tmp/cricket-main-loading.log', `Database module loaded\n`);
 const dbOps = require('./db-operations');
+fs.appendFileSync('/tmp/cricket-main-loading.log', `DB operations module loaded\n`);
 const { startServer, stopServer, getServerInfo } = require('./server');
+fs.appendFileSync('/tmp/cricket-main-loading.log', `Server module loaded\n`);
 
 let mainWindow = null;
 let scoreboardWindow = null;
 let serverBroadcast = null;
+let logStream = null;
+let logFilePath = null;
+
+function log(...args) {
+  // Log to console always
+  console.log(...args);
+
+  // Try to write to file if stream is available
+  if (logStream) {
+    try {
+      const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' ');
+      const timestamp = new Date().toISOString();
+      const logMessage = `[${timestamp}] ${message}\n`;
+      logStream.write(logMessage);
+    } catch (e) {
+      console.error('Failed to write to log file:', e);
+    }
+  }
+}
+
+fs.appendFileSync('/tmp/cricket-main-loading.log', `About to call app.whenReady() at ${new Date().toISOString()}\n`);
 
 app.whenReady().then(async () => {
+  fs.appendFileSync('/tmp/cricket-main-loading.log', `app.whenReady() callback fired at ${new Date().toISOString()}\n`);
+
+  // Setup file logging after app is ready
   try {
-    initDatabase();
-    console.log('Database initialized successfully');
+    fs.appendFileSync('/tmp/cricket-main-loading.log', `Getting userData path...\n`);
+    logFilePath = path.join(app.getPath('userData'), 'app.log');
+    fs.appendFileSync('/tmp/cricket-main-loading.log', `Log path: ${logFilePath}\n`);
+
+    logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
+    fs.appendFileSync('/tmp/cricket-main-loading.log', `Log stream created\n`);
+
+    log('='.repeat(60));
+    log('Cricket Scoring App Starting...');
+    log('App Version:', app.getVersion());
+    log('Electron Version:', process.versions.electron);
+    log('Node Version:', process.versions.node);
+    log('Platform:', process.platform);
+    log('Log file:', logFilePath);
+    log('='.repeat(60));
+
+    fs.appendFileSync('/tmp/cricket-main-loading.log', `File logging setup complete\n`);
+  } catch (e) {
+    fs.appendFileSync('/tmp/cricket-main-loading.log', `Error setting up log file: ${e.message}\n`);
+    console.error('Failed to setup log file:', e);
+  }
+
+  try {
+    fs.appendFileSync('/tmp/cricket-main-loading.log', `Initializing database...\n`);
+    log('Initializing database...');
+    await initDatabase();
+    log('Database initialized successfully');
+    fs.appendFileSync('/tmp/cricket-main-loading.log', `Database initialized\n`);
   } catch (error) {
-    console.error('Failed to initialize database:', error);
+    fs.appendFileSync('/tmp/cricket-main-loading.log', `Database error: ${error.message}\n${error.stack}\n`);
+    log('Failed to initialize database:', error);
     dialog.showErrorBox('Database Error', 'Failed to initialize database: ' + error.message);
   }
 
   // Start Express server
   try {
+    fs.appendFileSync('/tmp/cricket-main-loading.log', `Starting Express server...\n`);
+    log('Starting Express server...');
     const server = await startServer(3000);
+    fs.appendFileSync('/tmp/cricket-main-loading.log', `Server started successfully\n`);
     serverBroadcast = {
       matchUpdate: server.broadcastMatchUpdate,
       showAd: server.broadcastShowAd,
       closeAd: server.broadcastCloseAd
     };
-    console.log('Express server started successfully');
-    console.log(`Network URL: http://${server.localIP}:${server.port}/scoreboard`);
+    log('Express server started successfully');
+    log(`Network URL: http://${server.localIP}:${server.port}/scoreboard`);
 
     // Show a system notification with server info
     const { Notification } = require('electron');
     if (Notification.isSupported()) {
       new Notification({
         title: 'Cricket Scoring Server Started',
-        body: `Network Scoreboard: http://${server.localIP}:${server.port}/scoreboard\n\nAccess from any device on your network!`,
+        body: `Network Scoreboard: http://${server.localIP}:${server.port}/scoreboard\n\nAccess from any device on your network!\n\nLogs: ${logFilePath}`,
         timeoutType: 'never'
       }).show();
     }
+    fs.appendFileSync('/tmp/cricket-main-loading.log', `Notification shown\n`);
   } catch (error) {
-    console.error('Failed to start Express server:', error);
+    fs.appendFileSync('/tmp/cricket-main-loading.log', `Server error: ${error.message}\n${error.stack}\n`);
+    log('Failed to start Express server:', error);
+    log('Error details:', error.stack);
     // Continue without server - app will work in local mode
   }
 
+  fs.appendFileSync('/tmp/cricket-main-loading.log', `Creating main window...\n`);
   createMainWindow();
+  fs.appendFileSync('/tmp/cricket-main-loading.log', `Main window created\n`);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -53,9 +120,9 @@ app.whenReady().then(async () => {
 });
 
 function createMainWindow() {
-  console.log('Creating main window...');
-  console.log('__dirname:', __dirname);
-  console.log('NODE_ENV:', process.env.NODE_ENV);
+  log('Creating main window...');
+  log('__dirname:', __dirname);
+  log('NODE_ENV:', process.env.NODE_ENV);
 
   mainWindow = new BrowserWindow({
     width: 1200,

@@ -441,6 +441,29 @@ const Scoring: React.FC = () => {
     const updatedMatch = { ...currentMatch };
     updatedMatch.innings[currentMatch.currentInnings - 1] = updatedInnings;
 
+    // Check if target achieved in second innings
+    if (currentMatch.currentInnings === 2) {
+      const target = currentMatch.innings[0].runs + 1;
+      if (updatedInnings.runs >= target) {
+        // Target achieved - match complete
+        updatedMatch.status = 'completed';
+
+        const battingSecond = updatedInnings.battingTeamId === currentMatch.team1.id ? currentMatch.team1 : currentMatch.team2;
+        const wicketsRemaining = maxWickets - updatedInnings.wickets;
+        const resultMessage = `${battingSecond.name} won by ${wicketsRemaining} wicket${wicketsRemaining !== 1 ? 's' : ''}`;
+
+        toast.success(`Match Complete! ${resultMessage}`, { autoClose: 10000 });
+
+        try {
+          await updateMatch(updatedMatch);
+        } catch (error) {
+          console.error('Failed to update match:', error);
+          toast.error('Failed to record ball. Please try again.');
+        }
+        return;
+      }
+    }
+
     // Check for innings end
     const totalBallsInInnings = getTotalBalls(updatedInnings.overs, updatedInnings.balls);
 
@@ -481,7 +504,32 @@ const Scoring: React.FC = () => {
       } else {
         // Match complete
         updatedMatch.status = 'completed';
-        toast.success('Match Complete!');
+
+        // Calculate match result
+        const firstInnings = updatedMatch.innings[0];
+        const secondInnings = updatedMatch.innings[1];
+        const team1 = updatedMatch.team1;
+        const team2 = updatedMatch.team2;
+
+        const battingFirst = firstInnings.battingTeamId === team1.id ? team1 : team2;
+        const battingSecond = secondInnings.battingTeamId === team1.id ? team1 : team2;
+
+        let resultMessage = '';
+
+        if (secondInnings.runs > firstInnings.runs) {
+          // Chasing team won
+          const wicketsRemaining = maxWickets - secondInnings.wickets;
+          resultMessage = `${battingSecond.name} won by ${wicketsRemaining} wicket${wicketsRemaining !== 1 ? 's' : ''}`;
+        } else if (firstInnings.runs > secondInnings.runs) {
+          // Defending team won
+          const runsMargin = firstInnings.runs - secondInnings.runs;
+          resultMessage = `${battingFirst.name} won by ${runsMargin} run${runsMargin !== 1 ? 's' : ''}`;
+        } else {
+          // Tie
+          resultMessage = 'Match Tied!';
+        }
+
+        toast.success(`Match Complete! ${resultMessage}`, { autoClose: 10000 });
       }
     }
 
@@ -517,6 +565,8 @@ const Scoring: React.FC = () => {
     // Show bowler change prompt after over completion
     if (overComplete && !isWicket && updatedInnings.wickets < 10 && totalBallsInInnings < maxBalls) {
       setShowBowlerChange(true);
+      // Clear current bowler to force selection of new bowler
+      setCurrentBowler(null);
       toast.success('Over complete! Please select a new bowler.', {
         autoClose: 3000,
       });
@@ -614,6 +664,17 @@ const Scoring: React.FC = () => {
         toast.error(`${playerName} is currently batting and cannot bowl!`);
         setShowPlayerSelect(null);
         return;
+      }
+
+      // Check if this is after an over completion - prevent same bowler bowling consecutive overs
+      const totalBalls = getTotalBalls(updatedInnings.overs, updatedInnings.balls);
+      if (totalBalls > 0 && totalBalls % 6 === 0) {
+        // Over just completed - check if selecting same bowler
+        if (currentBowler && currentBowler.playerId === playerId) {
+          toast.error(`${playerName} just bowled the previous over and cannot bowl consecutive overs!`);
+          setShowPlayerSelect(null);
+          return;
+        }
       }
 
       // Check if bowler has reached max overs
@@ -1173,11 +1234,73 @@ const Scoring: React.FC = () => {
           </div>
         </div>
 
+        {/* Match Result - shown when match is completed */}
+        {currentMatch.status === 'completed' && currentMatch.innings.length === 2 && (
+          <div className="bg-gradient-to-r from-green-500 to-blue-600 rounded-xl shadow-lg p-6 md:p-8 mb-4">
+            <div className="text-center text-white">
+              <h2 className="text-3xl md:text-4xl font-bold mb-4">Match Complete!</h2>
+              <div className="text-2xl md:text-3xl font-semibold">
+                {(() => {
+                  const firstInnings = currentMatch.innings[0];
+                  const secondInnings = currentMatch.innings[1];
+                  const battingFirst = firstInnings.battingTeamId === currentMatch.team1.id ? currentMatch.team1 : currentMatch.team2;
+                  const battingSecond = secondInnings.battingTeamId === currentMatch.team1.id ? currentMatch.team1 : currentMatch.team2;
+
+                  if (secondInnings.runs > firstInnings.runs) {
+                    const wicketsRemaining = maxWickets - secondInnings.wickets;
+                    return `${battingSecond.name} won by ${wicketsRemaining} wicket${wicketsRemaining !== 1 ? 's' : ''}`;
+                  } else if (firstInnings.runs > secondInnings.runs) {
+                    const runsMargin = firstInnings.runs - secondInnings.runs;
+                    return `${battingFirst.name} won by ${runsMargin} run${runsMargin !== 1 ? 's' : ''}`;
+                  } else {
+                    return 'Match Tied!';
+                  }
+                })()}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Innings Summaries - shown when match is completed */}
+        {currentMatch.status === 'completed' && currentMatch.innings.length === 2 && (
+          <div className="space-y-4 mb-4">
+            <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+              <div className="bg-blue-600 text-white p-4">
+                <h3 className="text-xl font-bold">1st Innings</h3>
+              </div>
+              <InningsSummary
+                innings={currentMatch.innings[0]}
+                battingTeam={currentMatch.innings[0].battingTeamId === currentMatch.team1.id ? currentMatch.team1 : currentMatch.team2}
+                bowlingTeam={currentMatch.innings[0].bowlingTeamId === currentMatch.team1.id ? currentMatch.team1 : currentMatch.team2}
+                match={currentMatch}
+                inningsNumber={1}
+              />
+            </div>
+
+            <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+              <div className="bg-green-600 text-white p-4">
+                <h3 className="text-xl font-bold">2nd Innings</h3>
+              </div>
+              <InningsSummary
+                innings={currentMatch.innings[1]}
+                battingTeam={currentMatch.innings[1].battingTeamId === currentMatch.team1.id ? currentMatch.team1 : currentMatch.team2}
+                bowlingTeam={currentMatch.innings[1].bowlingTeamId === currentMatch.team1.id ? currentMatch.team1 : currentMatch.team2}
+                match={currentMatch}
+                inningsNumber={2}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Batsmen & Bowler */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
           <div className="bg-white rounded-xl shadow p-4">
             <button
               onClick={() => {
+                if (currentMatch.status === 'completed') {
+                  toast.error('Match is already completed');
+                  return;
+                }
                 // Only allow batsman change if striker is not set or is out
                 if (!striker || striker.isOut) {
                   setShowPlayerSelect('striker');
@@ -1185,7 +1308,8 @@ const Scoring: React.FC = () => {
                   toast.error('Cannot change batsmen during play. Batsmen can only be changed after a wicket.');
                 }
               }}
-              className="w-full text-left"
+              disabled={currentMatch.status === 'completed'}
+              className={`w-full text-left ${currentMatch.status === 'completed' ? 'opacity-60 cursor-not-allowed' : ''}`}
             >
               <p className="text-sm text-gray-600 mb-1">Striker *</p>
               <p className="font-bold text-lg">{striker?.playerName || 'Select Batsman'}</p>
@@ -1200,6 +1324,10 @@ const Scoring: React.FC = () => {
           <div className="bg-white rounded-xl shadow p-4">
             <button
               onClick={() => {
+                if (currentMatch.status === 'completed') {
+                  toast.error('Match is already completed');
+                  return;
+                }
                 // Only allow batsman change if non-striker is not set or is out
                 if (!nonStriker || nonStriker.isOut) {
                   setShowPlayerSelect('non-striker');
@@ -1207,7 +1335,8 @@ const Scoring: React.FC = () => {
                   toast.error('Cannot change batsmen during play. Batsmen can only be changed after a wicket.');
                 }
               }}
-              className="w-full text-left"
+              disabled={currentMatch.status === 'completed'}
+              className={`w-full text-left ${currentMatch.status === 'completed' ? 'opacity-60 cursor-not-allowed' : ''}`}
             >
               <p className="text-sm text-gray-600 mb-1">Non-Striker</p>
               <p className="font-bold text-lg">{nonStriker?.playerName || 'Select Batsman'}</p>
@@ -1221,8 +1350,15 @@ const Scoring: React.FC = () => {
 
           <div className="bg-white rounded-xl shadow p-4">
             <button
-              onClick={() => setShowPlayerSelect('bowler')}
-              className="w-full text-left"
+              onClick={() => {
+                if (currentMatch.status === 'completed') {
+                  toast.error('Match is already completed');
+                  return;
+                }
+                setShowPlayerSelect('bowler');
+              }}
+              disabled={currentMatch.status === 'completed'}
+              className={`w-full text-left ${currentMatch.status === 'completed' ? 'opacity-60 cursor-not-allowed' : ''}`}
             >
               <p className="text-sm text-gray-600 mb-1">Bowler *</p>
               <p className="font-bold text-lg">{currentBowler?.playerName || 'Select Bowler'}</p>
@@ -1239,14 +1375,18 @@ const Scoring: React.FC = () => {
         <div className="bg-white rounded-xl shadow-lg p-4 md:p-6 mb-4">
           <h3 className="font-bold text-lg mb-4">Score Runs</h3>
           <div className="grid grid-cols-4 gap-2 md:gap-4 mb-4">
-            {[0, 1, 2, 3, 4, 5].map((run) => (
+            {[0, 1, 2, 3, 4, 5, 6].map((run) => (
               <button
                 key={run}
                 onClick={() => recordBall(run)}
+                disabled={currentMatch.status === 'completed'}
                 className={`py-4 md:py-6 rounded-lg font-bold text-xl md:text-2xl transition-colors ${
-                  run === 0 ? 'bg-gray-200 hover:bg-gray-300' :
-                  run === 4 ? 'bg-blue-500 text-white hover:bg-blue-600' :
-                  'bg-green-500 text-white hover:bg-green-600'
+                  currentMatch.status === 'completed'
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : run === 0 ? 'bg-gray-200 hover:bg-gray-300' :
+                      run === 4 ? 'bg-blue-500 text-white hover:bg-blue-600' :
+                      run === 6 ? 'bg-purple-500 text-white hover:bg-purple-600' :
+                      'bg-green-500 text-white hover:bg-green-600'
                 }`}
               >
                 {run}
@@ -1254,16 +1394,14 @@ const Scoring: React.FC = () => {
             ))}
             <button
               onClick={() => openWicketDialog(0)}
-              className="py-4 md:py-6 rounded-lg font-bold text-xl md:text-2xl bg-red-500 text-white hover:bg-red-600 transition-colors"
+              disabled={currentMatch.status === 'completed'}
+              className={`py-4 md:py-6 rounded-lg font-bold text-xl md:text-2xl transition-colors ${
+                currentMatch.status === 'completed'
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-red-500 text-white hover:bg-red-600'
+              }`}
             >
               OUT
-            </button>
-            <button
-              onClick={() => recordBall(6, true)}
-              className="py-4 md:py-6 rounded-lg font-bold text-xl md:text-2xl bg-red-600 text-white hover:bg-red-700 transition-colors"
-              title="Hit for 6 = OUT (local rule)"
-            >
-              6 OUT
             </button>
           </div>
 
@@ -1273,21 +1411,21 @@ const Scoring: React.FC = () => {
               <button
                 onClick={() => setShowOverthrowInput(true)}
                 className="py-2 px-3 rounded-lg font-semibold bg-blue-600 text-white hover:bg-blue-700 text-xs"
-                disabled={!striker || currentInnings.ballByBall.length === 0}
+                disabled={!striker || currentInnings.ballByBall.length === 0 || currentMatch.status === 'completed'}
               >
                 Overthrow
               </button>
               <button
                 onClick={() => handleRetiredHurt()}
                 className="py-2 px-3 rounded-lg font-semibold bg-gray-600 text-white hover:bg-gray-700 text-xs"
-                disabled={!striker}
+                disabled={!striker || currentMatch.status === 'completed'}
               >
                 Retired Hurt
               </button>
               <button
                 onClick={() => handleUndoLastBall()}
                 className="py-2 px-3 rounded-lg font-semibold bg-orange-600 text-white hover:bg-orange-700 text-xs"
-                disabled={currentInnings.ballByBall.length === 0}
+                disabled={currentInnings.ballByBall.length === 0 || currentMatch.status === 'completed'}
               >
                 Undo Ball
               </button>
@@ -1296,37 +1434,67 @@ const Scoring: React.FC = () => {
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-4">
             <button
               onClick={() => setShowExtraInput('wide')}
-              className="py-3 md:py-4 rounded-lg font-semibold bg-yellow-500 text-white hover:bg-yellow-600"
+              disabled={currentMatch.status === 'completed'}
+              className={`py-3 md:py-4 rounded-lg font-semibold ${
+                currentMatch.status === 'completed'
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-yellow-500 text-white hover:bg-yellow-600'
+              }`}
             >
               Wide
             </button>
             <button
               onClick={() => setShowExtraInput('no-ball')}
-              className="py-3 md:py-4 rounded-lg font-semibold bg-orange-500 text-white hover:bg-orange-600"
+              disabled={currentMatch.status === 'completed'}
+              className={`py-3 md:py-4 rounded-lg font-semibold ${
+                currentMatch.status === 'completed'
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-orange-500 text-white hover:bg-orange-600'
+              }`}
             >
               No Ball
             </button>
             <button
               onClick={() => setShowExtraInput('bye')}
-              className="py-3 md:py-4 rounded-lg font-semibold bg-indigo-500 text-white hover:bg-indigo-600"
+              disabled={currentMatch.status === 'completed'}
+              className={`py-3 md:py-4 rounded-lg font-semibold ${
+                currentMatch.status === 'completed'
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-indigo-500 text-white hover:bg-indigo-600'
+              }`}
             >
               Bye
             </button>
             <button
               onClick={() => setShowExtraInput('leg-bye')}
-              className="py-3 md:py-4 rounded-lg font-semibold bg-pink-500 text-white hover:bg-pink-600"
+              disabled={currentMatch.status === 'completed'}
+              className={`py-3 md:py-4 rounded-lg font-semibold ${
+                currentMatch.status === 'completed'
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-pink-500 text-white hover:bg-pink-600'
+              }`}
             >
               Leg Bye
             </button>
             <button
               onClick={() => handleFixedOne()}
-              className="py-3 md:py-4 rounded-lg font-semibold bg-teal-500 text-white hover:bg-teal-600 text-sm"
+              disabled={currentMatch.status === 'completed'}
+              className={`py-3 md:py-4 rounded-lg font-semibold text-sm ${
+                currentMatch.status === 'completed'
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-teal-500 text-white hover:bg-teal-600'
+              }`}
             >
               1 (Fixed)
             </button>
             <button
               onClick={() => handleByeOneNoStrike()}
-              className="py-3 md:py-4 rounded-lg font-semibold bg-cyan-500 text-white hover:bg-cyan-600 text-sm"
+              disabled={currentMatch.status === 'completed'}
+              className={`py-3 md:py-4 rounded-lg font-semibold text-sm ${
+                currentMatch.status === 'completed'
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-cyan-500 text-white hover:bg-cyan-600'
+              }`}
             >
               Bye 1 (Fixed)
             </button>
@@ -1753,6 +1921,24 @@ const Scoring: React.FC = () => {
                   </button>
                 ))}
               </div>
+
+              {/* 6 OUT Button - Special Local Rule */}
+              <div className="mb-4">
+                <div className="text-sm text-gray-600 mb-2 text-center">
+                  Local Rule: Hit for 6 = OUT
+                </div>
+                <button
+                  onClick={() => {
+                    setShowWicketTypeDialog(false);
+                    recordBall(6, true);
+                  }}
+                  className="w-full py-4 rounded-lg font-bold text-xl bg-red-600 text-white hover:bg-red-700 transition-colors"
+                  title="Hit for 6 = OUT (local rule)"
+                >
+                  6 OUT
+                </button>
+              </div>
+
               <button
                 onClick={() => setShowWicketTypeDialog(false)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"

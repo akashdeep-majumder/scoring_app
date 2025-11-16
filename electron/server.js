@@ -675,14 +675,13 @@ function startServer(port = 3000) {
       });
 
       // Fallback to index.html for client-side routing
-      app.get('*', (req, res) => {
-        if (!req.path.startsWith('/api')) {
-          const indexPath = path.join(distPath, 'index.html');
-          if (fs.existsSync(indexPath)) {
-            res.sendFile(indexPath);
-          } else {
-            res.status(404).send('index.html not found at: ' + indexPath);
-          }
+      // In Express 5, use /.* instead of * for catch-all routes
+      app.get(/^\/(?!api).*/, (req, res) => {
+        const indexPath = path.join(distPath, 'index.html');
+        if (fs.existsSync(indexPath)) {
+          res.sendFile(indexPath);
+        } else {
+          res.status(404).send('index.html not found at: ' + indexPath);
         }
       });
     }
@@ -715,6 +714,12 @@ function startServer(port = 3000) {
         broadcastShowAd,
         broadcastCloseAd
       });
+    });
+
+    // Add error handler for server
+    httpServer.on('error', (error) => {
+      console.error('Server error:', error);
+      reject(error);
     });
 
     httpServer.on('error', (error) => {
