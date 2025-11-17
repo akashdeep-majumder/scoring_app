@@ -142,6 +142,108 @@ const Scoring: React.FC = () => {
     return commentary;
   };
 
+  // Checkbox handlers with mutual exclusivity
+  const handleNoBallToggle = () => {
+    const newValue = !isNoBall;
+    setIsNoBall(newValue);
+    if (newValue && isWide) {
+      setIsWide(false); // No Ball and Wide are mutually exclusive
+    }
+  };
+
+  const handleWideToggle = () => {
+    const newValue = !isWide;
+    setIsWide(newValue);
+    if (newValue) {
+      setIsNoBall(false); // No Ball and Wide are mutually exclusive
+      // Auto-select Bye when Wide is selected
+      if (selectedRuns !== null && selectedRuns > 0) {
+        setIsBye(true);
+        setIsLegBye(false);
+      }
+    }
+  };
+
+  const handleByeToggle = () => {
+    const newValue = !isBye;
+    setIsBye(newValue);
+    if (newValue && isLegBye) {
+      setIsLegBye(false); // Bye and Leg Bye are mutually exclusive
+    }
+  };
+
+  const handleLegByeToggle = () => {
+    const newValue = !isLegBye;
+    setIsLegBye(newValue);
+    if (newValue && isBye) {
+      setIsBye(false); // Bye and Leg Bye are mutually exclusive
+    }
+  };
+
+  const handleRunsSelection = (runs: number) => {
+    setSelectedRuns(runs);
+    // If Wide is checked and runs > 0, auto-select Bye
+    if (isWide && runs > 0) {
+      setIsBye(true);
+      setIsLegBye(false);
+    }
+  };
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input field
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      // Number keys (0-6) for runs
+      if (e.key >= '0' && e.key <= '6') {
+        const run = parseInt(e.key);
+        handleRunsSelection(run);
+        e.preventDefault();
+      }
+
+      // Letter keys for extras
+      switch (e.key.toLowerCase()) {
+        case 'w':
+          handleWideToggle();
+          e.preventDefault();
+          break;
+        case 'n':
+          handleNoBallToggle();
+          e.preventDefault();
+          break;
+        case 'b':
+          handleByeToggle();
+          e.preventDefault();
+          break;
+        case 'l':
+          handleLegByeToggle();
+          e.preventDefault();
+          break;
+        case 'o':
+          setIsOverthrow(!isOverthrow);
+          e.preventDefault();
+          break;
+        case 'enter':
+        case ' ': // Spacebar
+          if (selectedRuns !== null) {
+            handleRecordBall();
+            e.preventDefault();
+          }
+          break;
+        case 'escape':
+          clearScoringSelections();
+          e.preventDefault();
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [selectedRuns, isNoBall, isWide, isBye, isLegBye, isOverthrow]);
+
   // Restore current batsmen and bowler from match data when component mounts or match changes
   useEffect(() => {
     if (!currentMatch) return;
@@ -188,6 +290,445 @@ const Scoring: React.FC = () => {
   const playersPerTeam = tournament?.playersPerTeam || 11; // Default to 11 if not found
   const maxWickets = playersPerTeam - 1; // e.g., 6v6 = 5 wickets, 8v8 = 7 wickets, 11v11 = 10 wickets
 
+  // New recordBall function using checkbox system
+  const handleRecordBall = async (params?: { isWicket?: boolean; wicketType?: string; fielderId?: string; outBatsmanId?: string }) => {
+    const isWicket = params?.isWicket || false;
+    const wicketType = params?.wicketType;
+    const fielderId = params?.fielderId;
+    const outBatsmanId = params?.outBatsmanId;
+
+    // Validation: Must have runs selected
+    if (selectedRuns === null) {
+      toast.error('Please select runs before recording the ball');
+      return;
+    }
+
+    // Validation: Batsmen and bowler must be selected
+    if (!striker || !nonStriker || !currentBowler) {
+      toast.error('Please select both batsmen and bowler before scoring');
+      return;
+    }
+
+    // Validation: Match must not be completed
+    if (currentMatch.status === 'completed') {
+      toast.error('Match is already completed');
+      return;
+    }
+
+    // Validation: Mutual exclusivity - No Ball OR Wide (not both)
+    if (isNoBall && isWide) {
+      toast.error('Cannot have both No Ball and Wide on the same delivery');
+      return;
+    }
+
+    // Validation: Bye and Leg Bye cannot both be selected
+    if (isBye && isLegBye) {
+      toast.error('Cannot have both Bye and Leg Bye on the same delivery');
+      return;
+    }
+
+    // Auto-select Bye when Wide + runs
+    let effectiveIsBye = isBye;
+    if (isWide && selectedRuns > 0) {
+      effectiveIsBye = true;
+    }
+
+    // Determine extra type
+    let extraType: 'wide' | 'no-ball' | 'bye' | 'leg-bye' | undefined;
+    if (isWide) extraType = 'wide';
+    else if (isNoBall) extraType = 'no-ball';
+    else if (effectiveIsBye) extraType = 'bye';
+    else if (isLegBye) extraType = 'leg-bye';
+
+    // Calculate runs breakdown
+    let batsmanRuns = 0;
+    let extraRuns = 0;
+    let totalRuns = 0;
+
+    if (isWide) {
+      // Wide: NO runs to batsman, 1 penalty + selected runs (as byes)
+      batsmanRuns = 0;
+      extraRuns = 1 + selectedRuns; // 1 wide penalty + bye runs
+      totalRuns = extraRuns + overthrowRuns;
+    } else if (isNoBall) {
+      if (effectiveIsBye || isLegBye) {
+        // No Ball + Bye/Leg Bye: NO runs to batsman, 1 penalty + bye/legbye runs
+        batsmanRuns = 0;
+        extraRuns = 1 + selectedRuns;
+        totalRuns = extraRuns + overthrowRuns;
+      } else {
+        // No Ball + batsman runs: Runs to batsman, 1 penalty
+        batsmanRuns = selectedRuns;
+        extraRuns = 1; // Just the no-ball penalty
+        totalRuns = batsmanRuns + extraRuns + overthrowRuns;
+      }
+    } else if (effectiveIsBye || isLegBye) {
+      // Bye/Leg Bye: NO runs to batsman
+      batsmanRuns = 0;
+      extraRuns = selectedRuns;
+      totalRuns = extraRuns + overthrowRuns;
+    } else {
+      // Normal delivery: Runs to batsman
+      batsmanRuns = selectedRuns;
+      extraRuns = 0;
+      totalRuns = batsmanRuns + overthrowRuns;
+    }
+
+    const updatedInnings = { ...currentInnings };
+
+    // Check innings limits
+    const totalBalls = getTotalBalls(currentInnings.overs, currentInnings.balls);
+    const maxBalls = currentMatch.overs * 6;
+
+    if (currentInnings.wickets >= maxWickets) {
+      toast.error(`All out! ${maxWickets} wickets down`);
+      return;
+    }
+
+    if (totalBalls >= maxBalls) {
+      toast.error('Overs complete! Innings finished');
+      return;
+    }
+
+    // Check target in 2nd innings
+    if (currentMatch.currentInnings === 2) {
+      const target = currentMatch.innings[0].runs + 1;
+      if (currentInnings.runs >= target) {
+        toast.error('Target already achieved');
+        return;
+      }
+    }
+
+    // Update innings total
+    updatedInnings.runs += totalRuns;
+
+    // Update extras
+    if (isWide) {
+      updatedInnings.extras.wides += 1;
+      if (selectedRuns > 0) {
+        updatedInnings.extras.byes += selectedRuns;
+      }
+      if (overthrowRuns > 0) {
+        updatedInnings.extras.byes += overthrowRuns;
+      }
+    } else if (isNoBall) {
+      updatedInnings.extras.noBalls += 1;
+      if (effectiveIsBye) {
+        updatedInnings.extras.byes += selectedRuns;
+        if (overthrowRuns > 0) {
+          updatedInnings.extras.byes += overthrowRuns;
+        }
+      } else if (isLegBye) {
+        updatedInnings.extras.legByes += selectedRuns;
+        if (overthrowRuns > 0) {
+          updatedInnings.extras.byes += overthrowRuns;
+        }
+      } else if (overthrowRuns > 0) {
+        updatedInnings.extras.byes += overthrowRuns;
+      }
+    } else if (effectiveIsBye) {
+      updatedInnings.extras.byes += selectedRuns;
+      if (overthrowRuns > 0) {
+        updatedInnings.extras.byes += overthrowRuns;
+      }
+    } else if (isLegBye) {
+      updatedInnings.extras.legByes += selectedRuns;
+      if (overthrowRuns > 0) {
+        updatedInnings.extras.byes += overthrowRuns;
+      }
+    } else if (overthrowRuns > 0) {
+      updatedInnings.extras.byes += overthrowRuns;
+    }
+
+    // Update batsman stats (only if batsman scored runs)
+    const strikerIndex = updatedInnings.batsmen.findIndex(b => b.playerId === striker.playerId);
+    if (strikerIndex >= 0 && batsmanRuns > 0) {
+      updatedInnings.batsmen[strikerIndex].runs += batsmanRuns;
+
+      if (batsmanRuns === 4) updatedInnings.batsmen[strikerIndex].fours += 1;
+      if (batsmanRuns === 6) updatedInnings.batsmen[strikerIndex].sixes += 1;
+    }
+
+    // Update balls faced (valid balls only + no-balls)
+    const validBall = !extraType || extraType === 'bye' || extraType === 'leg-bye';
+    if (strikerIndex >= 0 && (validBall || isNoBall)) {
+      updatedInnings.batsmen[strikerIndex].balls += 1;
+      updatedInnings.batsmen[strikerIndex].strikeRate = calculateStrikeRate(
+        updatedInnings.batsmen[strikerIndex].runs,
+        updatedInnings.batsmen[strikerIndex].balls
+      );
+    }
+
+    // Mark batsman as out
+    if (isWicket) {
+      const outBatsmanIndex = outBatsmanId
+        ? updatedInnings.batsmen.findIndex(b => b.playerId === outBatsmanId)
+        : strikerIndex;
+
+      if (outBatsmanIndex >= 0) {
+        updatedInnings.batsmen[outBatsmanIndex].isOut = true;
+        updatedInnings.batsmen[outBatsmanIndex].isOnStrike = false;
+      }
+    }
+
+    // Update bowler stats
+    const bowlerIndex = updatedInnings.bowlers.findIndex(b => b.playerId === currentBowler.playerId);
+    if (bowlerIndex >= 0) {
+      if (validBall) {
+        updatedInnings.bowlers[bowlerIndex].balls += 1;
+        updatedInnings.bowlers[bowlerIndex].overs = parseFloat(formatOvers(updatedInnings.bowlers[bowlerIndex].balls));
+      }
+      updatedInnings.bowlers[bowlerIndex].runs += totalRuns;
+      if (isWicket) updatedInnings.bowlers[bowlerIndex].wickets += 1;
+
+      const totalBowlerBalls = updatedInnings.bowlers[bowlerIndex].balls;
+      if (totalBowlerBalls > 0) {
+        const economy = (updatedInnings.bowlers[bowlerIndex].runs / (totalBowlerBalls / 6));
+        updatedInnings.bowlers[bowlerIndex].economy = parseFloat(economy.toFixed(2));
+      }
+    }
+
+    // Generate commentary
+    const commentary = generateCommentary({
+      batsman: striker.playerName,
+      bowler: currentBowler.playerName,
+      batsmanRuns,
+      extraType,
+      extraRuns,
+      overthrowRuns,
+      isWicket,
+      wicketType,
+      fielder: fielderId,
+      outPlayer: outBatsmanId ? updatedInnings.batsmen.find(b => b.playerId === outBatsmanId)?.playerName : striker.playerName
+    });
+
+    // Record ball
+    const currentOverNumber = updatedInnings.overs + 1;
+    const currentBallNumber = updatedInnings.balls + 1;
+
+    const ball: Ball = {
+      over: currentOverNumber,
+      ball: currentBallNumber,
+      batsman: striker.playerName,
+      nonStriker: nonStriker.playerName,
+      bowler: currentBowler.playerName,
+      runs: totalRuns,
+      totalRuns,
+      batsmanRuns,
+      extraRuns,
+      overthrowRuns,
+      isWicket,
+      isExtra: !!extraType,
+      extraType,
+      wicketType: isWicket ? (wicketType as any) : undefined,
+      outPlayer: isWicket ? (outBatsmanId ? updatedInnings.batsmen.find(b => b.playerId === outBatsmanId)?.playerName : striker.playerName) : undefined,
+      fielderId,
+      commentary,
+      isFreeHit: false
+    };
+
+    updatedInnings.ballByBall.push(ball);
+
+    // Update ball count
+    const overComplete = validBall && (updatedInnings.balls + 1) % 6 === 0;
+    if (validBall) {
+      updatedInnings.balls += 1;
+      if (updatedInnings.balls % 6 === 0) {
+        updatedInnings.overs += 1;
+        updatedInnings.balls = 0;
+      }
+    }
+
+    // Update wickets
+    if (isWicket) {
+      updatedInnings.wickets += 1;
+
+      const fallOfWicket: FallOfWicket = {
+        wicketNumber: updatedInnings.wickets,
+        playerOut: outBatsmanId ? updatedInnings.batsmen.find(b => b.playerId === outBatsmanId)?.playerName || striker.playerName : striker.playerName,
+        runs: updatedInnings.runs,
+        overs: updatedInnings.overs,
+        balls: updatedInnings.balls,
+        howOut: wicketType || 'caught',
+        bowler: currentBowler.playerName,
+        fielder: fielderId
+      };
+
+      if (!updatedInnings.fallOfWickets) {
+        updatedInnings.fallOfWickets = [];
+      }
+      updatedInnings.fallOfWickets.push(fallOfWicket);
+
+      const activePartnership = updatedInnings.partnerships?.find(p => p.isActive);
+      if (activePartnership) {
+        activePartnership.isActive = false;
+      }
+    }
+
+    // Track partnerships
+    if (!isWicket && totalRuns > 0) {
+      if (!updatedInnings.partnerships) {
+        updatedInnings.partnerships = [];
+      }
+
+      let activePartnership = updatedInnings.partnerships.find(p => p.isActive);
+
+      if (!activePartnership ||
+          (activePartnership.batsman1 !== striker.playerName &&
+           activePartnership.batsman2 !== striker.playerName) ||
+          (activePartnership.batsman1 !== nonStriker.playerName &&
+           activePartnership.batsman2 !== nonStriker.playerName)) {
+        activePartnership = {
+          batsman1: striker.playerName,
+          batsman2: nonStriker.playerName,
+          runs: 0,
+          balls: 0,
+          isActive: true
+        };
+        updatedInnings.partnerships.push(activePartnership);
+      }
+
+      activePartnership.runs += totalRuns;
+      if (validBall) {
+        activePartnership.balls += 1;
+      }
+    }
+
+    // Strike rotation
+    let shouldRotateStrike = false;
+
+    if (isWicket && wicketType === 'run-out') {
+      shouldRotateStrike = selectedRuns % 2 === 1;
+    } else if (!isWicket) {
+      shouldRotateStrike = selectedRuns % 2 === 1 && validBall;
+    }
+
+    if (shouldRotateStrike) {
+      const temp = striker;
+      setStriker(nonStriker);
+      setNonStriker(temp);
+
+      updatedInnings.batsmen = updatedInnings.batsmen.map(b => ({
+        ...b,
+        isOnStrike: b.playerId === nonStriker.playerId
+      }));
+    }
+
+    // End of over strike change
+    if (overComplete && !isWicket) {
+      const temp = striker;
+      setStriker(nonStriker);
+      setNonStriker(temp);
+
+      updatedInnings.batsmen = updatedInnings.batsmen.map(b => ({
+        ...b,
+        isOnStrike: b.playerId === (shouldRotateStrike ? striker.playerId : nonStriker.playerId)
+      }));
+
+      toast.info(`Over complete! Strike changed`, { autoClose: 2000 });
+    }
+
+    // Update match
+    const updatedMatch = { ...currentMatch };
+    updatedMatch.innings[currentMatch.currentInnings - 1] = updatedInnings;
+
+    // Check target achieved
+    if (currentMatch.currentInnings === 2) {
+      const target = currentMatch.innings[0].runs + 1;
+      if (updatedInnings.runs >= target) {
+        updatedMatch.status = 'completed';
+        const battingSecond = updatedInnings.battingTeamId === currentMatch.team1.id ? currentMatch.team1 : currentMatch.team2;
+        const wicketsRemaining = maxWickets - updatedInnings.wickets;
+        toast.success(`${battingSecond.name} won by ${wicketsRemaining} wickets!`, { autoClose: 10000 });
+
+        await updateMatch(updatedMatch);
+        clearScoringSelections();
+        return;
+      }
+    }
+
+    // Check innings end
+    const totalBallsInInnings = getTotalBalls(updatedInnings.overs, updatedInnings.balls);
+    if (updatedInnings.wickets >= maxWickets || totalBallsInInnings >= maxBalls) {
+      if (updatedInnings.wickets >= maxWickets) {
+        updatedInnings.isAllOut = true;
+      }
+
+      if (currentMatch.currentInnings === 1) {
+        updatedMatch.currentInnings = 2;
+        const secondInnings: Innings = {
+          battingTeamId: currentInnings.bowlingTeamId,
+          bowlingTeamId: currentInnings.battingTeamId,
+          runs: 0,
+          wickets: 0,
+          overs: 0,
+          balls: 0,
+          extras: { wides: 0, noBalls: 0, byes: 0, legByes: 0, penalties: 0 },
+          batsmen: [],
+          bowlers: [],
+          ballByBall: [],
+          fallOfWickets: [],
+          partnerships: [],
+          targetScore: updatedInnings.runs + 1,
+          isDeclared: false,
+          isAllOut: false
+        };
+        updatedMatch.innings.push(secondInnings);
+        setStriker(null);
+        setNonStriker(null);
+        setCurrentBowler(null);
+        setShowInningsSummary(true);
+        toast.success('First innings complete!');
+      } else {
+        updatedMatch.status = 'completed';
+        const firstInnings = updatedMatch.innings[0];
+        const secondInnings = updatedMatch.innings[1];
+        const battingFirst = firstInnings.battingTeamId === currentMatch.team1.id ? currentMatch.team1 : currentMatch.team2;
+        const battingSecond = secondInnings.battingTeamId === currentMatch.team1.id ? currentMatch.team1 : currentMatch.team2;
+
+        let resultMessage = '';
+        if (secondInnings.runs > firstInnings.runs) {
+          const wicketsRemaining = maxWickets - secondInnings.wickets;
+          resultMessage = `${battingSecond.name} won by ${wicketsRemaining} wickets`;
+        } else if (firstInnings.runs > secondInnings.runs) {
+          const runsMargin = firstInnings.runs - secondInnings.runs;
+          resultMessage = `${battingFirst.name} won by ${runsMargin} runs`;
+        } else {
+          resultMessage = 'Match Tied!';
+        }
+        toast.success(`Match Complete! ${resultMessage}`, { autoClose: 10000 });
+      }
+    }
+
+    // Handle wicket
+    if (isWicket) {
+      if (outBatsmanId === striker.playerId || !outBatsmanId) {
+        setStriker(null);
+      } else if (outBatsmanId === nonStriker.playerId) {
+        setNonStriker(null);
+      }
+
+      toast.success(`Wicket! Please select next batsman.`, { autoClose: 4000 });
+    }
+
+    // Bowler change after over
+    if (overComplete && !isWicket && updatedInnings.wickets < maxWickets && totalBallsInInnings < maxBalls) {
+      setShowBowlerChange(true);
+      setCurrentBowler(null);
+      toast.success('Over complete! Select new bowler.', { autoClose: 3000 });
+    }
+
+    clearScoringSelections();
+
+    try {
+      await updateMatch(updatedMatch);
+    } catch (error) {
+      console.error('Failed to update match:', error);
+      toast.error('Failed to record ball');
+    }
+  };
+
+  // Old recordBall function for backwards compatibility with existing modals
   const recordBall = async (runs: number, isWicket: boolean = false, extraType?: 'wide' | 'no-ball' | 'bye' | 'leg-bye', extraRuns: number = 0, wicketType?: string, fielderName?: string, noStrikeChange: boolean = false, outBatsmanId?: string) => {
     // Cricket Rule Validations
 
@@ -1473,115 +2014,138 @@ const Scoring: React.FC = () => {
           </div>
         </div>
 
-        {/* Scoring Buttons */}
+        {/* New Checkbox-Based Scoring System */}
         <div className="bg-white rounded-xl shadow-lg p-4 md:p-6 mb-4">
-          <h3 className="font-bold text-lg mb-4">Score Runs</h3>
-          <div className="grid grid-cols-4 gap-2 md:gap-4 mb-4">
-            {[0, 1, 2, 3, 4, 5, 6].map((run) => (
+          {/* Extras Checkboxes */}
+          <div className="mb-4">
+            <h3 className="font-bold text-lg mb-3">Extras</h3>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+              <label className={`flex items-center space-x-2 p-3 rounded-lg cursor-pointer border-2 transition ${
+                isNoBall ? 'bg-orange-100 border-orange-500' : 'border-gray-300 hover:border-orange-400'
+              } ${currentMatch.status === 'completed' ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={isNoBall}
+                  onChange={handleNoBallToggle}
+                  disabled={currentMatch.status === 'completed'}
+                  className="w-5 h-5 accent-orange-500"
+                />
+                <span className="font-semibold">No Ball</span>
+              </label>
+
+              <label className={`flex items-center space-x-2 p-3 rounded-lg cursor-pointer border-2 transition ${
+                isWide ? 'bg-yellow-100 border-yellow-500' : 'border-gray-300 hover:border-yellow-400'
+              } ${currentMatch.status === 'completed' ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={isWide}
+                  onChange={handleWideToggle}
+                  disabled={currentMatch.status === 'completed'}
+                  className="w-5 h-5 accent-yellow-500"
+                />
+                <span className="font-semibold">Wide</span>
+              </label>
+
+              <label className={`flex items-center space-x-2 p-3 rounded-lg cursor-pointer border-2 transition ${
+                isBye ? 'bg-indigo-100 border-indigo-500' : 'border-gray-300 hover:border-indigo-400'
+              } ${currentMatch.status === 'completed' ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={isBye}
+                  onChange={handleByeToggle}
+                  disabled={currentMatch.status === 'completed'}
+                  className="w-5 h-5 accent-indigo-500"
+                />
+                <span className="font-semibold">Bye</span>
+              </label>
+
+              <label className={`flex items-center space-x-2 p-3 rounded-lg cursor-pointer border-2 transition ${
+                isLegBye ? 'bg-pink-100 border-pink-500' : 'border-gray-300 hover:border-pink-400'
+              } ${currentMatch.status === 'completed' ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={isLegBye}
+                  onChange={handleLegByeToggle}
+                  disabled={currentMatch.status === 'completed'}
+                  className="w-5 h-5 accent-pink-500"
+                />
+                <span className="font-semibold">Leg Bye</span>
+              </label>
+
+              <label className={`flex items-center space-x-2 p-3 rounded-lg cursor-pointer border-2 transition ${
+                isOverthrow ? 'bg-blue-100 border-blue-500' : 'border-gray-300 hover:border-blue-400'
+              } ${currentMatch.status === 'completed' ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={isOverthrow}
+                  onChange={() => setIsOverthrow(!isOverthrow)}
+                  disabled={currentMatch.status === 'completed'}
+                  className="w-5 h-5 accent-blue-500"
+                />
+                <span className="font-semibold">Overthrow</span>
+              </label>
+            </div>
+
+            {isOverthrow && (
+              <div className="mt-3 p-3 bg-blue-50 rounded-lg">
+                <label className="block mb-2 font-semibold text-sm">Overthrow Runs:</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="6"
+                  value={overthrowRuns}
+                  onChange={(e) => setOverthrowRuns(parseInt(e.target.value) || 0)}
+                  className="w-full px-3 py-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Runs Buttons */}
+          <div className="mb-4">
+            <h3 className="font-bold text-lg mb-3">Select Runs</h3>
+            <div className="grid grid-cols-4 gap-2 md:gap-3">
+              {[0, 1, 2, 3, 4, 5, 6].map((run) => (
+                <button
+                  key={run}
+                  onClick={() => handleRunsSelection(run)}
+                  disabled={currentMatch.status === 'completed'}
+                  className={`py-4 md:py-6 rounded-lg font-bold text-xl md:text-2xl transition-all ${
+                    currentMatch.status === 'completed'
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : selectedRuns === run
+                        ? 'ring-4 ring-offset-2 ring-green-500 shadow-lg transform scale-105'
+                        : ''
+                  } ${
+                    run === 0 ? 'bg-gray-200 hover:bg-gray-300' :
+                    run === 4 ? 'bg-blue-500 text-white hover:bg-blue-600' :
+                    run === 6 ? 'bg-purple-500 text-white hover:bg-purple-600' :
+                    'bg-green-500 text-white hover:bg-green-600'
+                  }`}
+                >
+                  {run}
+                </button>
+              ))}
               <button
-                key={run}
-                onClick={() => recordBall(run)}
+                onClick={() => openWicketDialog(0)}
                 disabled={currentMatch.status === 'completed'}
                 className={`py-4 md:py-6 rounded-lg font-bold text-xl md:text-2xl transition-colors ${
                   currentMatch.status === 'completed'
                     ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    : run === 0 ? 'bg-gray-200 hover:bg-gray-300' :
-                      run === 4 ? 'bg-blue-500 text-white hover:bg-blue-600' :
-                      run === 6 ? 'bg-purple-500 text-white hover:bg-purple-600' :
-                      'bg-green-500 text-white hover:bg-green-600'
+                    : 'bg-red-500 text-white hover:bg-red-600'
                 }`}
               >
-                {run}
-              </button>
-            ))}
-            <button
-              onClick={() => openWicketDialog(0)}
-              disabled={currentMatch.status === 'completed'}
-              className={`py-4 md:py-6 rounded-lg font-bold text-xl md:text-2xl transition-colors ${
-                currentMatch.status === 'completed'
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-red-500 text-white hover:bg-red-600'
-              }`}
-            >
-              OUT
-            </button>
-          </div>
-
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="font-bold text-lg">Extras & Actions</h3>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowOverthrowInput(true)}
-                className="py-2 px-3 rounded-lg font-semibold bg-blue-600 text-white hover:bg-blue-700 text-xs"
-                disabled={!striker || currentInnings.ballByBall.length === 0 || currentMatch.status === 'completed'}
-              >
-                Overthrow
-              </button>
-              <button
-                onClick={() => handleRetiredHurt()}
-                className="py-2 px-3 rounded-lg font-semibold bg-gray-600 text-white hover:bg-gray-700 text-xs"
-                disabled={!striker || currentMatch.status === 'completed'}
-              >
-                Retired Hurt
-              </button>
-              <button
-                onClick={() => handleUndoLastBall()}
-                className="py-2 px-3 rounded-lg font-semibold bg-orange-600 text-white hover:bg-orange-700 text-xs"
-                disabled={currentInnings.ballByBall.length === 0 || currentMatch.status === 'completed'}
-              >
-                Undo Ball
+                OUT
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-4">
-            <button
-              onClick={() => setShowExtraInput('wide')}
-              disabled={currentMatch.status === 'completed'}
-              className={`py-3 md:py-4 rounded-lg font-semibold ${
-                currentMatch.status === 'completed'
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-yellow-500 text-white hover:bg-yellow-600'
-              }`}
-            >
-              Wide
-            </button>
-            <button
-              onClick={() => setShowExtraInput('no-ball')}
-              disabled={currentMatch.status === 'completed'}
-              className={`py-3 md:py-4 rounded-lg font-semibold ${
-                currentMatch.status === 'completed'
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-orange-500 text-white hover:bg-orange-600'
-              }`}
-            >
-              No Ball
-            </button>
-            <button
-              onClick={() => setShowExtraInput('bye')}
-              disabled={currentMatch.status === 'completed'}
-              className={`py-3 md:py-4 rounded-lg font-semibold ${
-                currentMatch.status === 'completed'
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-indigo-500 text-white hover:bg-indigo-600'
-              }`}
-            >
-              Bye
-            </button>
-            <button
-              onClick={() => setShowExtraInput('leg-bye')}
-              disabled={currentMatch.status === 'completed'}
-              className={`py-3 md:py-4 rounded-lg font-semibold ${
-                currentMatch.status === 'completed'
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-pink-500 text-white hover:bg-pink-600'
-              }`}
-            >
-              Leg Bye
-            </button>
+
+          {/* Fixed Buttons */}
+          <div className="grid grid-cols-2 gap-2 mb-4">
             <button
               onClick={() => handleFixedOne()}
               disabled={currentMatch.status === 'completed'}
-              className={`py-3 md:py-4 rounded-lg font-semibold text-sm ${
+              className={`py-3 rounded-lg font-semibold ${
                 currentMatch.status === 'completed'
                   ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                   : 'bg-teal-500 text-white hover:bg-teal-600'
@@ -1592,13 +2156,44 @@ const Scoring: React.FC = () => {
             <button
               onClick={() => handleByeOneNoStrike()}
               disabled={currentMatch.status === 'completed'}
-              className={`py-3 md:py-4 rounded-lg font-semibold text-sm ${
+              className={`py-3 rounded-lg font-semibold ${
                 currentMatch.status === 'completed'
                   ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                   : 'bg-cyan-500 text-white hover:bg-cyan-600'
               }`}
             >
               Bye 1 (Fixed)
+            </button>
+          </div>
+
+          {/* Record Ball Button */}
+          <button
+            onClick={() => handleRecordBall()}
+            disabled={currentMatch.status === 'completed' || selectedRuns === null}
+            className={`w-full py-4 rounded-lg font-bold text-xl transition-all ${
+              currentMatch.status === 'completed' || selectedRuns === null
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-gradient-to-r from-green-500 to-blue-600 text-white hover:from-green-600 hover:to-blue-700 shadow-lg transform hover:scale-105'
+            }`}
+          >
+            {selectedRuns === null ? 'Select Runs First' : `Record Ball (${selectedRuns} runs)`}
+          </button>
+
+          {/* Action Buttons */}
+          <div className="flex gap-2 mt-4">
+            <button
+              onClick={() => handleRetiredHurt()}
+              className="flex-1 py-2 px-3 rounded-lg font-semibold bg-gray-600 text-white hover:bg-gray-700 text-sm"
+              disabled={!striker || currentMatch.status === 'completed'}
+            >
+              Retired Hurt
+            </button>
+            <button
+              onClick={() => handleUndoLastBall()}
+              className="flex-1 py-2 px-3 rounded-lg font-semibold bg-orange-600 text-white hover:bg-orange-700 text-sm"
+              disabled={currentInnings.ballByBall.length === 0 || currentMatch.status === 'completed'}
+            >
+              Undo Ball
             </button>
           </div>
         </div>
