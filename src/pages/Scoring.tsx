@@ -923,15 +923,19 @@ const Scoring: React.FC = () => {
       batsman: striker.playerName,
       nonStriker: nonStriker?.playerName || '',
       bowler: currentBowler.playerName,
-      runs: extraType ? 0 : runs, // Runs scored by batsman (not including extras)
+      runs: totalRunsToAdd, // Total runs added to score
       totalRuns: totalRunsToAdd, // Total runs added to score
+      batsmanRuns: extraType ? 0 : runs, // Runs credited to batsman
+      extraRuns: extraType === 'wide' || extraType === 'no-ball' ? (1 + extraRuns) : 0,
+      overthrowRuns: 0,
       isWicket,
       isExtra,
       extraType,
-      extraRuns: extraType === 'wide' || extraType === 'no-ball' ? (1 + extraRuns) : 0,
       wicketType: isWicket ? (wicketType as any) : undefined,
+      outPlayer: isWicket ? striker.playerName : undefined,
       fielderId: fielderName,
-      isFreeHit: isFreeHit
+      isFreeHit: isFreeHit,
+      commentary: undefined
     };
     updatedInnings.ballByBall.push(ball);
 
