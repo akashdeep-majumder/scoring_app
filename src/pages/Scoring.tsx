@@ -40,6 +40,108 @@ const Scoring: React.FC = () => {
   const [showBatsmanRunOutSelect, setShowBatsmanRunOutSelect] = useState(false);
   const [selectedRunOutBatsman, setSelectedRunOutBatsman] = useState<'striker' | 'non-striker' | null>(null);
 
+  // New checkbox-based scoring system state
+  const [selectedRuns, setSelectedRuns] = useState<number | null>(null);
+  const [isNoBall, setIsNoBall] = useState(false);
+  const [isWide, setIsWide] = useState(false);
+  const [isBye, setIsBye] = useState(false);
+  const [isLegBye, setIsLegBye] = useState(false);
+  const [isOverthrow, setIsOverthrow] = useState(false);
+  const [overthrowRuns, setOverthrowRuns] = useState(0);
+
+  // Helper: Clear all scoring selections
+  const clearScoringSelections = () => {
+    setSelectedRuns(null);
+    setIsNoBall(false);
+    setIsWide(false);
+    setIsBye(false);
+    setIsLegBye(false);
+    setIsOverthrow(false);
+    setOverthrowRuns(0);
+  };
+
+  // Helper: Generate auto-commentary for a ball
+  const generateCommentary = (params: {
+    batsman: string;
+    bowler: string;
+    batsmanRuns: number;
+    extraType?: 'wide' | 'no-ball' | 'bye' | 'leg-bye';
+    extraRuns: number;
+    overthrowRuns: number;
+    isWicket: boolean;
+    wicketType?: string;
+    fielder?: string;
+    outPlayer?: string;
+  }): string => {
+    const { batsman, bowler, batsmanRuns, extraType, extraRuns, overthrowRuns, isWicket, wicketType, fielder, outPlayer } = params;
+
+    if (isWicket) {
+      if (wicketType === 'caught') {
+        return `OUT! ${outPlayer || batsman} caught by ${fielder || 'fielder'} (bowled by ${bowler})`;
+      } else if (wicketType === 'run-out') {
+        return `OUT! ${outPlayer || batsman} run out by ${fielder || 'fielder'}`;
+      } else if (wicketType === 'bowled') {
+        return `OUT! ${outPlayer || batsman} bowled by ${bowler}`;
+      } else if (wicketType === 'lbw') {
+        return `OUT! ${outPlayer || batsman} LBW (bowled by ${bowler})`;
+      } else if (wicketType === 'stumped') {
+        return `OUT! ${outPlayer || batsman} stumped by ${fielder || 'keeper'} (bowled by ${bowler})`;
+      } else {
+        return `OUT! ${outPlayer || batsman} ${wicketType || 'dismissed'} (bowled by ${bowler})`;
+      }
+    }
+
+    let commentary = '';
+    const totalRuns = batsmanRuns + extraRuns + overthrowRuns;
+
+    if (extraType === 'wide') {
+      if (overthrowRuns > 0) {
+        commentary = `Wide + ${extraRuns} byes + ${overthrowRuns} overthrow (${totalRuns + 1} total) - ${bowler}`;
+      } else if (extraRuns > 0) {
+        commentary = `Wide + ${extraRuns} byes (${totalRuns + 1} total) - ${bowler}`;
+      } else {
+        commentary = `Wide (1 run) - ${bowler}`;
+      }
+    } else if (extraType === 'no-ball') {
+      if (batsmanRuns > 0) {
+        if (overthrowRuns > 0) {
+          commentary = `No Ball, ${batsman} hit ${batsmanRuns} runs + ${overthrowRuns} overthrow (${totalRuns + 1} total) - ${bowler}`;
+        } else {
+          commentary = `No Ball, ${batsman} hit ${batsmanRuns} runs (${totalRuns + 1} total) - ${bowler}`;
+        }
+      } else {
+        commentary = `No Ball (1 run) - ${bowler}`;
+      }
+    } else if (extraType === 'bye') {
+      if (overthrowRuns > 0) {
+        commentary = `Bye ${batsmanRuns} runs + ${overthrowRuns} overthrow (${totalRuns} total) - ${bowler}`;
+      } else {
+        commentary = `Bye ${batsmanRuns} runs - ${bowler}`;
+      }
+    } else if (extraType === 'leg-bye') {
+      if (overthrowRuns > 0) {
+        commentary = `Leg Bye ${batsmanRuns} runs + ${overthrowRuns} overthrow (${totalRuns} total) - ${bowler}`;
+      } else {
+        commentary = `Leg Bye ${batsmanRuns} runs - ${bowler}`;
+      }
+    } else {
+      // Normal delivery
+      if (overthrowRuns > 0) {
+        commentary = `${batsman} hit ${batsmanRuns} runs + ${overthrowRuns} overthrow (${totalRuns} total) - ${bowler}`;
+      } else if (batsmanRuns === 0) {
+        commentary = `Dot ball - ${bowler} to ${batsman}`;
+      } else if (batsmanRuns === 4) {
+        commentary = `FOUR! ${batsman} hit ${batsmanRuns} runs (bowled by ${bowler})`;
+      } else if (batsmanRuns === 6) {
+        commentary = `SIX! ${batsman} hit ${batsmanRuns} runs (bowled by ${bowler})`;
+      } else {
+        commentary = `${batsman} hit ${batsmanRuns} runs (bowled by ${bowler})`;
+      }
+    }
+
+    return commentary;
+  };
+
   // Restore current batsmen and bowler from match data when component mounts or match changes
   useEffect(() => {
     if (!currentMatch) return;

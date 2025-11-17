@@ -287,20 +287,29 @@ function createTables() {
   `);
 
   // Balls (Ball-by-ball) table
+  // Drop existing table for fresh schema
+  db.run(`DROP TABLE IF EXISTS balls`);
+
   db.run(`
-    CREATE TABLE IF NOT EXISTS balls (
+    CREATE TABLE balls (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       innings_id INTEGER NOT NULL,
       over_number INTEGER NOT NULL,
       ball_number INTEGER NOT NULL,
       batsman TEXT NOT NULL,
+      non_striker TEXT NOT NULL,
       bowler TEXT NOT NULL,
       runs INTEGER NOT NULL,
+      batsman_runs INTEGER NOT NULL DEFAULT 0,
+      extra_runs INTEGER NOT NULL DEFAULT 0,
+      overthrow_runs INTEGER NOT NULL DEFAULT 0,
       is_wicket INTEGER NOT NULL DEFAULT 0,
       is_extra INTEGER NOT NULL DEFAULT 0,
       extra_type TEXT,
       wicket_type TEXT,
       out_player TEXT,
+      fielder_id TEXT,
+      commentary TEXT,
       created_at TEXT NOT NULL,
       FOREIGN KEY (innings_id) REFERENCES innings (id) ON DELETE CASCADE
     )

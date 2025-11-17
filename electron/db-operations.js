@@ -653,21 +653,28 @@ function getBallsByInnings(inningsId) {
     over: row.over_number,
     ball: row.ball_number,
     batsman: row.batsman,
+    nonStriker: row.non_striker,
     bowler: row.bowler,
     runs: row.runs,
+    totalRuns: row.runs,
+    batsmanRuns: row.batsman_runs,
+    extraRuns: row.extra_runs,
+    overthrowRuns: row.overthrow_runs,
     isWicket: row.is_wicket === 1,
     isExtra: row.is_extra === 1,
     extraType: row.extra_type,
     wicketType: row.wicket_type,
-    outPlayer: row.out_player
+    outPlayer: row.out_player,
+    fielderId: row.fielder_id,
+    commentary: row.commentary
   }));
 }
 
 function addBall(inningsId, ball) {
   const db = getDatabase();
   const stmt = db.prepare(`
-    INSERT INTO balls (innings_id, over_number, ball_number, batsman, bowler, runs, is_wicket, is_extra, extra_type, wicket_type, out_player, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO balls (innings_id, over_number, ball_number, batsman, non_striker, bowler, runs, batsman_runs, extra_runs, overthrow_runs, is_wicket, is_extra, extra_type, wicket_type, out_player, fielder_id, commentary, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `);
 
   stmt.run(
@@ -675,13 +682,19 @@ function addBall(inningsId, ball) {
     ball.over,
     ball.ball,
     ball.batsman,
+    ball.nonStriker,
     ball.bowler,
-    ball.runs,
+    ball.totalRuns || ball.runs,
+    ball.batsmanRuns || 0,
+    ball.extraRuns || 0,
+    ball.overthrowRuns || 0,
     ball.isWicket ? 1 : 0,
     ball.isExtra ? 1 : 0,
     ball.extraType || null,
     ball.wicketType || null,
-    ball.outPlayer || null
+    ball.outPlayer || null,
+    ball.fielderId || null,
+    ball.commentary || null
   );
 }
 

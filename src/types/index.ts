@@ -122,23 +122,24 @@ export interface Ball {
   batsman: string;
   nonStriker: string;
   bowler: string;
-  runs: number; // Runs scored by batsman (not including extras)
-  totalRuns: number; // Total runs added to score (includes penalty)
+  runs: number; // Total runs added to score (for backwards compatibility)
+  totalRuns: number; // Total runs added to score (includes penalty + batsman + extras)
+  batsmanRuns: number; // Runs credited to batsman only
+  extraRuns: number; // Runs from extras (wides/byes/no-ball penalty)
+  overthrowRuns: number; // Overthrow runs (added to byes)
   isWicket: boolean;
   isExtra: boolean;
   extraType?: 'wide' | 'no-ball' | 'bye' | 'leg-bye' | 'penalty';
-  extraRuns: number; // Additional runs from extras
   wicketType?: 'bowled' | 'caught' | 'lbw' | 'run-out' | 'stumped' | 'hit-wicket' |
                'retired-hurt' | 'retired-out' | 'obstructing' | 'handled-ball' |
                'timed-out' | 'hit-ball-twice';
   outPlayer?: string;
-  fielderId?: string; // For caught/run-out
+  fielderId?: string; // For caught/run-out (fielder who threw/caught)
   isFreeHit?: boolean;
-  isOverthrow?: boolean;
-  overthrowRuns?: number;
+  isOverthrow?: boolean; // Deprecated - use overthrowRuns instead
   batsmenCrossed?: boolean; // For run-out scenarios
   shortRun?: boolean;
-  commentary?: string;
+  commentary?: string; // Auto-generated ball description
 }
 
 export interface Ad {
