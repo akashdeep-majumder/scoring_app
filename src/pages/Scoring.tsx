@@ -48,6 +48,7 @@ const Scoring: React.FC = () => {
   const [isLegBye, setIsLegBye] = useState(false);
   const [isOverthrow, setIsOverthrow] = useState(false);
   const [overthrowRuns, setOverthrowRuns] = useState(0);
+  const [previousOverBowlerId, setPreviousOverBowlerId] = useState<string | null>(null);
 
   // Helper: Clear all scoring selections
   const clearScoringSelections = () => {
@@ -714,6 +715,8 @@ const Scoring: React.FC = () => {
     // Bowler change after over
     if (overComplete && !isWicket && updatedInnings.wickets < maxWickets && totalBallsInInnings < maxBalls) {
       setShowBowlerChange(true);
+      // Store previous bowler ID before clearing
+      setPreviousOverBowlerId(currentBowler.playerId);
       setCurrentBowler(null);
       toast.success('Over complete! Select new bowler.', { autoClose: 3000 });
     }
@@ -1212,6 +1215,10 @@ const Scoring: React.FC = () => {
     // Show bowler change prompt after over completion
     if (overComplete && !isWicket && updatedInnings.wickets < 10 && totalBallsInInnings < maxBalls) {
       setShowBowlerChange(true);
+      // Store previous bowler ID before clearing to prevent consecutive overs
+      if (currentBowler) {
+        setPreviousOverBowlerId(currentBowler.playerId);
+      }
       // Clear current bowler to force selection of new bowler
       setCurrentBowler(null);
       toast.success('Over complete! Please select a new bowler.', {
@@ -1314,14 +1321,11 @@ const Scoring: React.FC = () => {
       }
 
       // Check if this is after an over completion - prevent same bowler bowling consecutive overs
-      const totalBalls = getTotalBalls(updatedInnings.overs, updatedInnings.balls);
-      if (totalBalls > 0 && totalBalls % 6 === 0) {
-        // Over just completed - check if selecting same bowler
-        if (currentBowler && currentBowler.playerId === playerId) {
-          toast.error(`${playerName} just bowled the previous over and cannot bowl consecutive overs!`);
-          setShowPlayerSelect(null);
-          return;
-        }
+      // Use previousOverBowlerId which was stored before clearing currentBowler
+      if (previousOverBowlerId && previousOverBowlerId === playerId) {
+        toast.error(`${playerName} just bowled the previous over and cannot bowl consecutive overs!`);
+        setShowPlayerSelect(null);
+        return;
       }
 
       // Check if bowler has reached max overs
@@ -1357,6 +1361,9 @@ const Scoring: React.FC = () => {
           console.error('Failed to add bowler:', error);
         }
       }
+
+      // Clear previous over bowler ID once a new bowler is selected
+      setPreviousOverBowlerId(null);
     }
 
     setShowPlayerSelect(null);
