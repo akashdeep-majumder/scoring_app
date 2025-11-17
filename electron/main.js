@@ -1,17 +1,19 @@
 // Log to temp file immediately to verify main.js is loading
 const fs = require('fs');
-fs.writeFileSync('/tmp/cricket-main-loading.log', `main.js started loading at ${new Date().toISOString()}\n`);
+const os = require('os');
+const path = require('path');
+const tempLogPath = path.join(os.tmpdir(), 'cricket-main-loading.log');
+fs.writeFileSync(tempLogPath, `main.js started loading at ${new Date().toISOString()}\n`);
 
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
-const path = require('path');
 
-fs.appendFileSync('/tmp/cricket-main-loading.log', `Electron modules loaded successfully\n`);
+fs.appendFileSync(tempLogPath, `Electron modules loaded successfully\n`);
 const { initDatabase, closeDatabase } = require('./database');
-fs.appendFileSync('/tmp/cricket-main-loading.log', `Database module loaded\n`);
+fs.appendFileSync(tempLogPath, `Database module loaded\n`);
 const dbOps = require('./db-operations');
-fs.appendFileSync('/tmp/cricket-main-loading.log', `DB operations module loaded\n`);
+fs.appendFileSync(tempLogPath, `DB operations module loaded\n`);
 const { startServer, stopServer, getServerInfo } = require('./server');
-fs.appendFileSync('/tmp/cricket-main-loading.log', `Server module loaded\n`);
+fs.appendFileSync(tempLogPath, `Server module loaded\n`);
 
 let mainWindow = null;
 let scoreboardWindow = null;
@@ -36,19 +38,19 @@ function log(...args) {
   }
 }
 
-fs.appendFileSync('/tmp/cricket-main-loading.log', `About to call app.whenReady() at ${new Date().toISOString()}\n`);
+fs.appendFileSync(tempLogPath, `About to call app.whenReady() at ${new Date().toISOString()}\n`);
 
 app.whenReady().then(async () => {
-  fs.appendFileSync('/tmp/cricket-main-loading.log', `app.whenReady() callback fired at ${new Date().toISOString()}\n`);
+  fs.appendFileSync(tempLogPath, `app.whenReady() callback fired at ${new Date().toISOString()}\n`);
 
   // Setup file logging after app is ready
   try {
-    fs.appendFileSync('/tmp/cricket-main-loading.log', `Getting userData path...\n`);
+    fs.appendFileSync(tempLogPath, `Getting userData path...\n`);
     logFilePath = path.join(app.getPath('userData'), 'app.log');
-    fs.appendFileSync('/tmp/cricket-main-loading.log', `Log path: ${logFilePath}\n`);
+    fs.appendFileSync(tempLogPath, `Log path: ${logFilePath}\n`);
 
     logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
-    fs.appendFileSync('/tmp/cricket-main-loading.log', `Log stream created\n`);
+    fs.appendFileSync(tempLogPath, `Log stream created\n`);
 
     log('='.repeat(60));
     log('Cricket Scoring App Starting...');
@@ -59,30 +61,30 @@ app.whenReady().then(async () => {
     log('Log file:', logFilePath);
     log('='.repeat(60));
 
-    fs.appendFileSync('/tmp/cricket-main-loading.log', `File logging setup complete\n`);
+    fs.appendFileSync(tempLogPath, `File logging setup complete\n`);
   } catch (e) {
-    fs.appendFileSync('/tmp/cricket-main-loading.log', `Error setting up log file: ${e.message}\n`);
+    fs.appendFileSync(tempLogPath, `Error setting up log file: ${e.message}\n`);
     console.error('Failed to setup log file:', e);
   }
 
   try {
-    fs.appendFileSync('/tmp/cricket-main-loading.log', `Initializing database...\n`);
+    fs.appendFileSync(tempLogPath, `Initializing database...\n`);
     log('Initializing database...');
     await initDatabase();
     log('Database initialized successfully');
-    fs.appendFileSync('/tmp/cricket-main-loading.log', `Database initialized\n`);
+    fs.appendFileSync(tempLogPath, `Database initialized\n`);
   } catch (error) {
-    fs.appendFileSync('/tmp/cricket-main-loading.log', `Database error: ${error.message}\n${error.stack}\n`);
+    fs.appendFileSync(tempLogPath, `Database error: ${error.message}\n${error.stack}\n`);
     log('Failed to initialize database:', error);
     dialog.showErrorBox('Database Error', 'Failed to initialize database: ' + error.message);
   }
 
   // Start Express server
   try {
-    fs.appendFileSync('/tmp/cricket-main-loading.log', `Starting Express server...\n`);
+    fs.appendFileSync(tempLogPath, `Starting Express server...\n`);
     log('Starting Express server...');
     const server = await startServer(3000);
-    fs.appendFileSync('/tmp/cricket-main-loading.log', `Server started successfully\n`);
+    fs.appendFileSync(tempLogPath, `Server started successfully\n`);
     serverBroadcast = {
       matchUpdate: server.broadcastMatchUpdate,
       showAd: server.broadcastShowAd,
@@ -100,17 +102,17 @@ app.whenReady().then(async () => {
         timeoutType: 'never'
       }).show();
     }
-    fs.appendFileSync('/tmp/cricket-main-loading.log', `Notification shown\n`);
+    fs.appendFileSync(tempLogPath, `Notification shown\n`);
   } catch (error) {
-    fs.appendFileSync('/tmp/cricket-main-loading.log', `Server error: ${error.message}\n${error.stack}\n`);
+    fs.appendFileSync(tempLogPath, `Server error: ${error.message}\n${error.stack}\n`);
     log('Failed to start Express server:', error);
     log('Error details:', error.stack);
     // Continue without server - app will work in local mode
   }
 
-  fs.appendFileSync('/tmp/cricket-main-loading.log', `Creating main window...\n`);
+  fs.appendFileSync(tempLogPath, `Creating main window...\n`);
   createMainWindow();
-  fs.appendFileSync('/tmp/cricket-main-loading.log', `Main window created\n`);
+  fs.appendFileSync(tempLogPath, `Main window created\n`);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

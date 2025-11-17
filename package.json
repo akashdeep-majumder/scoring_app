@@ -90,12 +90,6 @@
       ],
       "icon": "public/cricket-icon.png",
       "category": "Sports"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
     }
   }
 }
