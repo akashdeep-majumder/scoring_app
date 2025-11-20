@@ -380,8 +380,12 @@ const NetworkScoreboard: React.FC = () => {
   const bowlingTeam = match.team1.id === currentInnings.bowlingTeamId ? match.team1 : match.team2;
 
   const totalBalls = currentInnings.overs * 6 + currentInnings.balls;
+  const ballsRemaining = match.overs * 6 - totalBalls;
+
   const requiredRunRate = match.currentInnings === 2 && totalBalls > 0
-    ? ((match.innings[0].runs - currentInnings.runs + 1) / (match.overs * 6 - totalBalls) * 6).toFixed(2)
+    ? ballsRemaining > 0
+      ? ((match.innings[0].runs - currentInnings.runs + 1) / ballsRemaining * 6).toFixed(2)
+      : null  // No balls remaining
     : null;
 
   const currentRunRate = totalBalls > 0
@@ -581,7 +585,7 @@ const NetworkScoreboard: React.FC = () => {
           <div className="bg-white bg-opacity-10 rounded-lg p-2 flex flex-col min-h-0">
             <h3 className="text-sm md:text-base font-bold text-white mb-2 flex-shrink-0">Batsmen</h3>
             <div className="space-y-2 flex-1 overflow-y-auto">
-              {currentInnings.batsmen.filter(b => !b.isOut && b.balls > 0).map((batsman, index) => (
+              {currentInnings.batsmen.filter(b => !b.isOut && !b.isRetiredHurt && (b.balls > 0 || b.isOnStrike)).map((batsman, index) => (
                 <div key={index} className="bg-white bg-opacity-10 rounded-lg p-2">
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-xs md:text-sm font-bold text-white">{batsman.playerName}</span>
@@ -602,21 +606,31 @@ const NetworkScoreboard: React.FC = () => {
           {/* RIGHT: Current Bowler */}
           <div className="flex flex-col gap-2 min-h-0">
             {/* Current Bowler */}
-            {currentInnings.bowlers.length > 0 && (
-              <div className="bg-white bg-opacity-10 rounded-lg p-2 flex-shrink-0">
-                <h3 className="text-xs md:text-sm font-bold text-white mb-2">Current Bowler</h3>
-                <div className="bg-white bg-opacity-10 rounded-lg p-2">
-                  <div className="text-xs md:text-sm font-bold text-white mb-1">
-                    {currentInnings.bowlers[currentInnings.bowlers.length - 1].playerName}
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-white">{currentInnings.bowlers[currentInnings.bowlers.length - 1].wickets}-{currentInnings.bowlers[currentInnings.bowlers.length - 1].runs}</span>
-                    <span className="text-gray-300">({currentInnings.bowlers[currentInnings.bowlers.length - 1].overs.toFixed(1)} ov)</span>
-                    <span className="text-gray-300">Econ: {currentInnings.bowlers[currentInnings.bowlers.length - 1].economy.toFixed(2)}</span>
+            {currentInnings.bowlers.length > 0 && (() => {
+              // Get current bowler from last ball, fallback to last bowler in list
+              const currentBowlerName = currentInnings.ballByBall.length > 0
+                ? currentInnings.ballByBall[currentInnings.ballByBall.length - 1].bowler
+                : currentInnings.bowlers[currentInnings.bowlers.length - 1].playerName;
+
+              const currentBowler = currentInnings.bowlers.find(b => b.playerName === currentBowlerName)
+                || currentInnings.bowlers[currentInnings.bowlers.length - 1];
+
+              return (
+                <div className="bg-white bg-opacity-10 rounded-lg p-2 flex-shrink-0">
+                  <h3 className="text-xs md:text-sm font-bold text-white mb-2">Current Bowler</h3>
+                  <div className="bg-white bg-opacity-10 rounded-lg p-2">
+                    <div className="text-xs md:text-sm font-bold text-white mb-1">
+                      {currentBowler.playerName}
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-white">{currentBowler.wickets}-{currentBowler.runs}</span>
+                      <span className="text-gray-300">({currentBowler.overs.toFixed(1)} ov)</span>
+                      <span className="text-gray-300">Econ: {currentBowler.economy.toFixed(2)}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         </div>
         )}

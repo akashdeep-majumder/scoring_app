@@ -486,6 +486,8 @@ const Scoring: React.FC = () => {
       if (totalBowlerBalls > 0) {
         const economy = (updatedInnings.bowlers[bowlerIndex].runs / (totalBowlerBalls / 6));
         updatedInnings.bowlers[bowlerIndex].economy = parseFloat(economy.toFixed(2));
+      } else {
+        updatedInnings.bowlers[bowlerIndex].economy = 0;
       }
     }
 
@@ -574,11 +576,12 @@ const Scoring: React.FC = () => {
 
       let activePartnership = updatedInnings.partnerships.find(p => p.isActive);
 
-      if (!activePartnership ||
-          (activePartnership.batsman1 !== striker.playerName &&
-           activePartnership.batsman2 !== striker.playerName) ||
-          (activePartnership.batsman1 !== nonStriker.playerName &&
-           activePartnership.batsman2 !== nonStriker.playerName)) {
+      // Check if active partnership is still valid (both batsmen still at crease)
+      const partnershipInvalid = !activePartnership ||
+        !(activePartnership.batsman1 === striker.playerName || activePartnership.batsman1 === nonStriker.playerName) ||
+        !(activePartnership.batsman2 === striker.playerName || activePartnership.batsman2 === nonStriker.playerName);
+
+      if (partnershipInvalid) {
         activePartnership = {
           batsman1: striker.playerName,
           batsman2: nonStriker.playerName,
@@ -645,22 +648,7 @@ const Scoring: React.FC = () => {
     const updatedMatch = { ...currentMatch };
     updatedMatch.innings[currentMatch.currentInnings - 1] = updatedInnings;
 
-    // Check target achieved
-    if (currentMatch.currentInnings === 2) {
-      const target = currentMatch.innings[0].runs + 1;
-      if (updatedInnings.runs >= target) {
-        updatedMatch.status = 'completed';
-        const battingSecond = updatedInnings.battingTeamId === currentMatch.team1.id ? currentMatch.team1 : currentMatch.team2;
-        const wicketsRemaining = maxWickets - updatedInnings.wickets;
-        toast.success(`${battingSecond.name} won by ${wicketsRemaining} wickets!`, { autoClose: 10000 });
-
-        await updateMatch(updatedMatch);
-        clearScoringSelections();
-        return;
-      }
-    }
-
-    // Check innings end
+    // Check innings end FIRST (before target check to ensure wickets are properly recorded)
     const totalBallsInInnings = getTotalBalls(updatedInnings.overs, updatedInnings.balls);
     if (updatedInnings.wickets >= maxWickets || totalBallsInInnings >= maxBalls) {
       if (updatedInnings.wickets >= maxWickets) {
@@ -710,6 +698,21 @@ const Scoring: React.FC = () => {
           resultMessage = 'Match Tied!';
         }
         toast.success(`Match Complete! ${resultMessage}`, { autoClose: 10000 });
+      }
+    }
+
+    // Check target achieved (after innings end check to ensure proper stats)
+    if (currentMatch.currentInnings === 2 && updatedMatch.status !== 'completed') {
+      const target = currentMatch.innings[0].runs + 1;
+      if (updatedInnings.runs >= target) {
+        updatedMatch.status = 'completed';
+        const battingSecond = updatedInnings.battingTeamId === currentMatch.team1.id ? currentMatch.team1 : currentMatch.team2;
+        const wicketsRemaining = maxWickets - updatedInnings.wickets;
+        toast.success(`${battingSecond.name} won by ${wicketsRemaining} wickets!`, { autoClose: 10000 });
+
+        await updateMatch(updatedMatch);
+        clearScoringSelections();
+        return;
       }
     }
 
@@ -924,6 +927,8 @@ const Scoring: React.FC = () => {
       if (totalBalls > 0) {
         const economy = (updatedInnings.bowlers[bowlerIndex].runs / (totalBalls / 6));
         updatedInnings.bowlers[bowlerIndex].economy = parseFloat(economy.toFixed(2));
+      } else {
+        updatedInnings.bowlers[bowlerIndex].economy = 0;
       }
     }
 
@@ -1613,12 +1618,25 @@ const Scoring: React.FC = () => {
         // No Ball: Decrement noBalls by 1
         updatedInnings.extras.noBalls -= 1;
         // If there were byes/leg-byes with no-ball, reverse them
-        if (lastBall.extraRuns > 1) {
+        if (lastBall.extraRuns > 1 && lastBall.batsmanRuns === 0) {
           // extraRuns includes the 1 penalty + bye/leg-bye runs
-          const byeRuns = lastBall.extraRuns - 1;
-          // Check if it was bye or leg-bye by looking at batsman runs
-          if (lastBall.batsmanRuns === 0) {
-            updatedInnings.extras.byes -= byeRuns;
+          const extraRunsWithoutPenalty = lastBall.extraRuns - 1;
+
+          // We need to determine if it was bye or leg-bye
+          // Check commentary or use heuristic: if leg-byes were recently updated, it's likely leg-bye
+          // For safety, we'll subtract from byes first, and if that goes negative, adjust
+          const currentByes = updatedInnings.extras.byes;
+          const currentLegByes = updatedInnings.extras.legByes;
+
+          // If we have enough byes to subtract, it was probably bye
+          if (currentByes >= extraRunsWithoutPenalty) {
+            updatedInnings.extras.byes -= extraRunsWithoutPenalty;
+          } else if (currentLegByes >= extraRunsWithoutPenalty) {
+            // Otherwise it was leg-bye
+            updatedInnings.extras.legByes -= extraRunsWithoutPenalty;
+          } else {
+            // Fallback: subtract from byes (shouldn't happen in normal flow)
+            updatedInnings.extras.byes -= extraRunsWithoutPenalty;
           }
         }
         // Reverse overthrow runs if any
