@@ -532,6 +532,10 @@ const Scoring: React.FC = () => {
 
     updatedInnings.ballByBall.push(ball);
 
+    // Capture current over/ball BEFORE incrementing (for fall of wicket)
+    const wicketFallOvers = updatedInnings.overs;
+    const wicketFallBalls = updatedInnings.balls;
+
     // Update ball count
     const overComplete = validBall && (updatedInnings.balls + 1) % 6 === 0;
     if (validBall) {
@@ -550,8 +554,8 @@ const Scoring: React.FC = () => {
         wicketNumber: updatedInnings.wickets,
         playerOut: outBatsmanId ? updatedInnings.batsmen.find(b => b.playerId === outBatsmanId)?.playerName || striker.playerName : striker.playerName,
         runs: updatedInnings.runs,
-        overs: updatedInnings.overs,
-        balls: updatedInnings.balls,
+        overs: wicketFallOvers,
+        balls: wicketFallBalls,
         howOut: wicketType || 'caught',
         bowler: currentBowler.playerName,
         fielder: fielderId
@@ -568,8 +572,8 @@ const Scoring: React.FC = () => {
       }
     }
 
-    // Track partnerships
-    if (!isWicket && totalRuns > 0) {
+    // Track partnerships (only count batsman runs, not extras)
+    if (!isWicket && (batsmanRuns > 0 || validBall)) {
       if (!updatedInnings.partnerships) {
         updatedInnings.partnerships = [];
       }
@@ -592,7 +596,8 @@ const Scoring: React.FC = () => {
         updatedInnings.partnerships.push(activePartnership);
       }
 
-      activePartnership.runs += totalRuns;
+      // Only add batsman runs to partnership, not extras (wides/byes/no-balls)
+      activePartnership.runs += batsmanRuns;
       if (validBall) {
         activePartnership.balls += 1;
       }
@@ -680,6 +685,12 @@ const Scoring: React.FC = () => {
         setCurrentBowler(null);
         setShowInningsSummary(true);
         toast.success('First innings complete!');
+
+        // Save match and return to prevent further processing
+        await updateMatch(updatedMatch);
+        clearScoringSelections();
+        setUndoCount(0);
+        return;
       } else {
         updatedMatch.status = 'completed';
         const firstInnings = updatedMatch.innings[0];
@@ -698,6 +709,12 @@ const Scoring: React.FC = () => {
           resultMessage = 'Match Tied!';
         }
         toast.success(`Match Complete! ${resultMessage}`, { autoClose: 10000 });
+
+        // Save match and return to prevent further processing
+        await updateMatch(updatedMatch);
+        clearScoringSelections();
+        setUndoCount(0);
+        return;
       }
     }
 
@@ -737,6 +754,9 @@ const Scoring: React.FC = () => {
     }
 
     clearScoringSelections();
+
+    // Reset undo count when a new ball is recorded
+    setUndoCount(0);
 
     try {
       await updateMatch(updatedMatch);
