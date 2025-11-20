@@ -536,13 +536,30 @@ const NetworkScoreboard: React.FC = () => {
             </div>
 
             {/* Score */}
-            <div className="bg-gradient-to-br from-blue-600 to-purple-600 rounded-lg p-3 text-center flex-shrink-0">
-              <div className="text-4xl md:text-5xl font-bold text-white mb-1">
+            <div className="bg-gradient-to-br from-blue-600 to-purple-600 rounded-lg p-4 md:p-6 text-center flex-shrink-0">
+              <div className="text-6xl md:text-8xl font-bold text-white mb-2">
                 {currentInnings.runs}/{currentInnings.wickets}
               </div>
-              <div className="text-sm text-gray-200">
+              <div className="text-base md:text-lg text-gray-200 mb-2">
                 {currentInnings.overs}.{currentInnings.balls} Overs
               </div>
+              {/* Target Info for 2nd Innings */}
+              {match.currentInnings === 2 && match.innings[0] && (
+                <div className="mt-3 pt-3 border-t border-white border-opacity-30">
+                  <div className="text-sm md:text-base text-gray-200 mb-1">
+                    Target: {match.innings[0].runs + 1}
+                  </div>
+                  {currentInnings.runs < match.innings[0].runs + 1 ? (
+                    <div className="text-base md:text-xl font-semibold text-yellow-300">
+                      Need {match.innings[0].runs + 1 - currentInnings.runs} runs in {match.overs * 6 - (currentInnings.overs * 6 + currentInnings.balls)} balls
+                    </div>
+                  ) : (
+                    <div className="text-base md:text-xl font-semibold text-green-300">
+                      Target Achieved!
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Run Rates */}
@@ -582,7 +599,7 @@ const NetworkScoreboard: React.FC = () => {
             </div>
           </div>
 
-          {/* RIGHT: Bowler & Last Overs */}
+          {/* RIGHT: Current Bowler */}
           <div className="flex flex-col gap-2 min-h-0">
             {/* Current Bowler */}
             {currentInnings.bowlers.length > 0 && (
@@ -600,55 +617,6 @@ const NetworkScoreboard: React.FC = () => {
                 </div>
               </div>
             )}
-
-            {/* Last 5 Overs */}
-            <div className="bg-white bg-opacity-10 rounded-lg p-2 flex-1 overflow-y-auto">
-              <h3 className="text-xs md:text-sm font-bold text-white mb-2">Last 5 Overs</h3>
-              <div className="space-y-1">
-                {currentInnings.ballByBall && currentInnings.ballByBall.length > 0 ? (
-                  currentInnings.ballByBall.reduce((overs: any[], ball) => {
-                    const overIndex = ball.over - 1;
-                    if (!overs[overIndex]) {
-                      overs[overIndex] = { over: ball.over, balls: [] };
-                    }
-                    overs[overIndex].balls.push(ball);
-                    return overs;
-                  }, []).slice(-5).reverse().map((over, index) => {
-                    const overRuns = over.balls.reduce((sum: number, b: any) => sum + (b.totalRuns || b.runs), 0);
-                    return (
-                      <div key={index} className="bg-white bg-opacity-5 rounded p-1">
-                        <div className="flex justify-between text-xs text-white mb-1">
-                          <span>Over {over.over}</span>
-                          <span className="font-bold">{overRuns} runs</span>
-                        </div>
-                        <div className="flex gap-1 flex-wrap">
-                          {over.balls.map((ball: any, ballIndex: number) => (
-                            <div
-                              key={ballIndex}
-                              className={`w-5 h-5 rounded flex items-center justify-center text-xs font-bold ${
-                                ball.isWicket
-                                  ? 'bg-red-500 text-white'
-                                  : ball.extraType === 'wide' || ball.extraType === 'no-ball'
-                                  ? 'bg-yellow-500 text-gray-900'
-                                  : ball.runs === 4
-                                  ? 'bg-blue-500 text-white'
-                                  : ball.runs === 6
-                                  ? 'bg-purple-500 text-white'
-                                  : 'bg-gray-600 text-white'
-                              }`}
-                            >
-                              {ball.isWicket && ball.extraType ? `${ball.extraType[0].toUpperCase()}+W` : ball.isWicket ? 'W' : ball.extraType ? `${ball.extraType[0].toUpperCase()}${ball.extraRuns || ball.totalRuns || 0}` : ball.runs}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <p className="text-xs text-gray-400">No balls bowled yet</p>
-                )}
-              </div>
-            </div>
           </div>
         </div>
         )}
