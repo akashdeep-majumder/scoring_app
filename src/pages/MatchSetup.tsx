@@ -30,7 +30,7 @@ const MatchSetup: React.FC = () => {
             You need at least 2 teams to start a match.
           </p>
           <button
-            onClick={() => navigate('/tournaments')}
+            onClick={() => navigate('/')}
             className="mt-4 px-6 py-3 bg-blue-500 text-white rounded-lg"
           >
             Go to Tournaments
