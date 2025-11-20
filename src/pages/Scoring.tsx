@@ -1601,19 +1601,43 @@ const Scoring: React.FC = () => {
     // Reverse runs
     updatedInnings.runs -= lastBall.totalRuns || lastBall.runs;
 
-    // Reverse extras
+    // Reverse extras based on new Ball interface
     if (lastBall.extraType) {
       if (lastBall.extraType === 'wide') {
-        // extraRuns already includes the penalty (1 + extra runs)
-        updatedInnings.extras.wides -= lastBall.extraRuns;
+        // Wide: Decrement wides by 1, and byes by selectedRuns + overthrowRuns
+        updatedInnings.extras.wides -= 1;
+        // Wide byes = extraRuns - 1 (penalty) + overthrowRuns
+        const wideByes = (lastBall.extraRuns - 1) + (lastBall.overthrowRuns || 0);
+        updatedInnings.extras.byes -= wideByes;
       } else if (lastBall.extraType === 'no-ball') {
-        // extraRuns already includes the penalty (1 + extra runs)
-        updatedInnings.extras.noBalls -= lastBall.extraRuns;
+        // No Ball: Decrement noBalls by 1
+        updatedInnings.extras.noBalls -= 1;
+        // If there were byes/leg-byes with no-ball, reverse them
+        if (lastBall.extraRuns > 1) {
+          // extraRuns includes the 1 penalty + bye/leg-bye runs
+          const byeRuns = lastBall.extraRuns - 1;
+          // Check if it was bye or leg-bye by looking at batsman runs
+          if (lastBall.batsmanRuns === 0) {
+            updatedInnings.extras.byes -= byeRuns;
+          }
+        }
+        // Reverse overthrow runs if any
+        if (lastBall.overthrowRuns > 0) {
+          updatedInnings.extras.byes -= lastBall.overthrowRuns;
+        }
       } else if (lastBall.extraType === 'bye') {
-        updatedInnings.extras.byes -= lastBall.runs;
+        // Bye: Reverse bye runs (extraRuns) + overthrow runs
+        updatedInnings.extras.byes -= (lastBall.extraRuns + (lastBall.overthrowRuns || 0));
       } else if (lastBall.extraType === 'leg-bye') {
-        updatedInnings.extras.legByes -= lastBall.runs;
+        // Leg Bye: Reverse leg-bye runs (extraRuns) and overthrow runs from byes
+        updatedInnings.extras.legByes -= lastBall.extraRuns;
+        if (lastBall.overthrowRuns > 0) {
+          updatedInnings.extras.byes -= lastBall.overthrowRuns;
+        }
       }
+    } else if (lastBall.overthrowRuns > 0) {
+      // Normal delivery with overthrow - reverse overthrow from byes
+      updatedInnings.extras.byes -= lastBall.overthrowRuns;
     }
 
     // Reverse batsman stats
@@ -1621,44 +1645,49 @@ const Scoring: React.FC = () => {
     if (batsmanIndex >= 0) {
       const batsman = updatedInnings.batsmen[batsmanIndex];
 
-      // Only reverse if not bye/leg-bye
-      const extraType = lastBall.extraType;
-      if (!extraType || (extraType !== 'bye' && extraType !== 'leg-bye')) {
-        const batsmanRuns = (lastBall.extraType === 'wide' || lastBall.extraType === 'no-ball')
-          ? lastBall.runs + lastBall.extraRuns
-          : lastBall.runs;
-        batsman.runs -= batsmanRuns;
+      // Reverse batsman runs (use batsmanRuns field from Ball interface)
+      if (lastBall.batsmanRuns > 0) {
+        batsman.runs -= lastBall.batsmanRuns;
 
-        // Only reverse ball count if it was a valid delivery
-        const validBall = !lastBall.isExtra || lastBall.extraType === 'bye' || lastBall.extraType === 'leg-bye';
-        if (validBall && batsman.balls > 0) batsman.balls -= 1;
+        // Reverse fours/sixes
+        if (lastBall.batsmanRuns === 4 && batsman.fours > 0) {
+          batsman.fours -= 1;
+        }
+        if (lastBall.batsmanRuns === 6 && batsman.sixes > 0) {
+          batsman.sixes -= 1;
+        }
+      }
 
-        if (batsmanRuns === 4 && batsman.fours > 0) batsman.fours -= 1;
+      // Reverse ball count if it was a valid delivery (not wide, not no-ball)
+      const validBall = !lastBall.extraType || lastBall.extraType === 'bye' || lastBall.extraType === 'leg-bye';
+      if (validBall && batsman.balls > 0) {
+        batsman.balls -= 1;
+      }
 
-        // Reverse wicket
-        if (lastBall.isWicket) {
-          batsman.isOut = false;
-          updatedInnings.wickets -= 1;
+      // Reverse wicket
+      if (lastBall.isWicket) {
+        batsman.isOut = false;
+        updatedInnings.wickets -= 1;
 
-          // Remove fall of wicket
-          if (updatedInnings.fallOfWickets && updatedInnings.fallOfWickets.length > 0) {
-            updatedInnings.fallOfWickets.pop();
-          }
-
-          // Restore the batsman who got out back as striker
-          batsman.isOnStrike = true;
-          setStriker(batsman);
-
-          // Find and set the non-striker from the ball record
-          const nonStrikerBatsman = updatedInnings.batsmen.find(b => b.playerName === lastBall.nonStriker);
-          if (nonStrikerBatsman) {
-            nonStrikerBatsman.isOnStrike = false;
-            setNonStriker(nonStrikerBatsman);
-          }
+        // Remove fall of wicket
+        if (updatedInnings.fallOfWickets && updatedInnings.fallOfWickets.length > 0) {
+          updatedInnings.fallOfWickets.pop();
         }
 
-        batsman.strikeRate = calculateStrikeRate(batsman.runs, batsman.balls);
+        // Restore the batsman who got out back as striker
+        batsman.isOnStrike = true;
+        setStriker(batsman);
+
+        // Find and set the non-striker from the ball record
+        const nonStrikerBatsman = updatedInnings.batsmen.find(b => b.playerName === lastBall.nonStriker);
+        if (nonStrikerBatsman) {
+          nonStrikerBatsman.isOnStrike = false;
+          setNonStriker(nonStrikerBatsman);
+        }
       }
+
+      // Recalculate strike rate
+      batsman.strikeRate = calculateStrikeRate(batsman.runs, batsman.balls);
     }
 
     // Reverse bowler stats
