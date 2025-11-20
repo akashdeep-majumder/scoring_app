@@ -601,7 +601,16 @@ const Scoring: React.FC = () => {
     if (isWicket && wicketType === 'run-out') {
       shouldRotateStrike = selectedRuns % 2 === 1;
     } else if (!isWicket) {
-      shouldRotateStrike = selectedRuns % 2 === 1 && validBall;
+      // For wide + bye, strike rotates on odd runs even though it's not a valid ball
+      // For normal balls, bye, leg-bye, or no-ball, rotate on odd runs
+      const runsCount = selectedRuns || 0;
+      if (isWide) {
+        // Wide + runs (byes): Strike rotates on odd runs
+        shouldRotateStrike = runsCount % 2 === 1;
+      } else {
+        // Valid balls (including no-ball, bye, leg-bye): Rotate on odd runs
+        shouldRotateStrike = runsCount % 2 === 1;
+      }
     }
 
     if (shouldRotateStrike) {
