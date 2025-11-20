@@ -450,9 +450,9 @@ const Scoring: React.FC = () => {
       if (batsmanRuns === 6) updatedInnings.batsmen[strikerIndex].sixes += 1;
     }
 
-    // Update balls faced (valid balls only + no-balls)
+    // Update balls faced (valid balls only - NO no-balls)
     const validBall = !extraType || extraType === 'bye' || extraType === 'leg-bye';
-    if (strikerIndex >= 0 && (validBall || isNoBall)) {
+    if (strikerIndex >= 0 && validBall) {
       updatedInnings.batsmen[strikerIndex].balls += 1;
       updatedInnings.batsmen[strikerIndex].strikeRate = calculateStrikeRate(
         updatedInnings.batsmen[strikerIndex].runs,
@@ -599,18 +599,17 @@ const Scoring: React.FC = () => {
     let shouldRotateStrike = false;
 
     if (isWicket && wicketType === 'run-out') {
-      shouldRotateStrike = selectedRuns % 2 === 1;
+      // For run-outs, consider total runs physically made (selectedRuns + overthrows)
+      const totalRunsMade = (selectedRuns || 0) + overthrowRuns;
+      shouldRotateStrike = totalRunsMade % 2 === 1;
     } else if (!isWicket) {
-      // For wide + bye, strike rotates on odd runs even though it's not a valid ball
-      // For normal balls, bye, leg-bye, or no-ball, rotate on odd runs
-      const runsCount = selectedRuns || 0;
-      if (isWide) {
-        // Wide + runs (byes): Strike rotates on odd runs
-        shouldRotateStrike = runsCount % 2 === 1;
-      } else {
-        // Valid balls (including no-ball, bye, leg-bye): Rotate on odd runs
-        shouldRotateStrike = runsCount % 2 === 1;
-      }
+      // Calculate total runs physically made by batsmen (including overthrows)
+      const totalRunsMade = (selectedRuns || 0) + overthrowRuns;
+
+      // Strike rotates on ODD total runs made (selectedRuns + overthrowRuns)
+      // Example: 1 run + 1 overthrow = 2 total → NO rotation (even)
+      // Example: 1 run + 2 overthrow = 3 total → YES rotation (odd)
+      shouldRotateStrike = totalRunsMade % 2 === 1;
     }
 
     if (shouldRotateStrike) {
@@ -625,17 +624,21 @@ const Scoring: React.FC = () => {
     }
 
     // End of over strike change
-    if (overComplete && !isWicket) {
+    // Only rotate at end of over if we haven't already rotated due to odd runs
+    if (overComplete && !isWicket && !shouldRotateStrike) {
       const temp = striker;
       setStriker(nonStriker);
       setNonStriker(temp);
 
       updatedInnings.batsmen = updatedInnings.batsmen.map(b => ({
         ...b,
-        isOnStrike: b.playerId === (shouldRotateStrike ? striker.playerId : nonStriker.playerId)
+        isOnStrike: b.playerId === nonStriker.playerId
       }));
 
       toast.info(`Over complete! Strike changed`, { autoClose: 2000 });
+    } else if (overComplete && !isWicket && shouldRotateStrike) {
+      // Strike already rotated due to odd runs, just show toast
+      toast.info(`Over complete!`, { autoClose: 2000 });
     }
 
     // Update match
